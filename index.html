@@ -18,6 +18,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 
+<script>window.SPICY_VERSION = "5.3.2";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.1/dist/umd/supabase.js"></script>
 <script>window.SPICY_BACKEND = {"url": "https://ctsbigebqkyggntjevqq.supabase.co", "key": "sb_publishable_2jC3tz_LgP3P-439fIjUMA_P36MN8Q0"};</script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -259,6 +260,52 @@ const parseDuration = (v) => {
 // ---------- saved data ----------
 // A downloaded page keeps its data in this browser, under this key.
 const STORE_KEY = "spicysweet.payroll.v2";
+// stamped by build.py; the hosted page checks version.json so a stale cached copy
+// offers a reload instead of silently staying old
+const APP_VERSION = (typeof window !== "undefined" && window.SPICY_VERSION) || "dev";
+function UpdateWatcher() {
+    const [fresh, setFresh] = useState(null);
+    useEffect(() => {
+        if (APP_VERSION === "dev" || !/^https?:/.test(window.location.protocol))
+            return;
+        let stop = false;
+        const check = async () => {
+            try {
+                const r = await fetch("version.json?t=" + Date.now(), { cache: "no-store" });
+                if (!r.ok)
+                    return;
+                const j = await r.json();
+                if (!stop && j && j.version && j.version !== APP_VERSION)
+                    setFresh(j.version);
+            }
+            catch (err) { }
+        };
+        check();
+        const t = setInterval(check, 3 * 60 * 1000);
+        const vis = () => document.visibilityState === "visible" && check();
+        document.addEventListener("visibilitychange", vis);
+        return () => {
+            stop = true;
+            clearInterval(t);
+            document.removeEventListener("visibilitychange", vis);
+        };
+    }, []);
+    if (!fresh)
+        return null;
+    return (React.createElement("div", { className: "ss-update ss-pop print:hidden", role: "status" },
+        React.createElement("span", null,
+            React.createElement("b", null, "Update ready"),
+            " \u00B7 ",
+            fresh,
+            " is out, you're on ",
+            APP_VERSION,
+            "."),
+        React.createElement("button", { onClick: () => {
+                const u = new URL(window.location.href);
+                u.searchParams.set("v", fresh);
+                window.location.replace(u.toString());
+            }, className: "ss-btn ss-btn-primary py-1.5" }, "Reload now")));
+}
 // ---------- sound effects (synthesized, per device) ----------
 const SFX_KEY = STORE_KEY + ".sounds";
 const THEMES = [
@@ -5448,6 +5495,8 @@ function AppStyles() {
       html.ss-has-cursor, html.ss-has-cursor body, html.ss-has-cursor a, html.ss-has-cursor button, html.ss-has-cursor label, html.ss-has-cursor select, html.ss-has-cursor [role=button] { cursor: none !important; }
       html.ss-has-cursor input, html.ss-has-cursor textarea { cursor: none !important; }
       @media (hover: none), (pointer: coarse) { .ss-cursor { display: none !important; } }
+      .ss-update { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 80; display: flex; align-items: center; gap: 12px; padding: 10px 12px 10px 16px; border-radius: 16px; background: rgba(28,17,38,.92); color: #fff; font-size: 13px; box-shadow: 0 18px 44px -18px rgba(0,0,0,.6); backdrop-filter: blur(12px); max-width: calc(100vw - 24px); }
+      @media (max-width: 1023px) { .ss-update { bottom: calc(80px + env(safe-area-inset-bottom, 0px)); } }
       .ss-menu { position: absolute; right: 0; top: calc(100% + 6px); z-index: 70; min-width: 260px; padding: 6px; border-radius: 14px; background: rgba(255,255,255,.92); border: 1px solid var(--edge); box-shadow: 0 18px 44px -18px rgba(28,17,38,.45); backdrop-filter: blur(var(--blur)); -webkit-backdrop-filter: blur(var(--blur)); }
       .ss-menu button { display: block; width: 100%; text-align: left; padding: 9px 11px; border-radius: 10px; }
       .ss-menu button:not(:disabled):hover { background: rgba(236,42,134,.09); transform: none; }
@@ -7978,6 +8027,7 @@ function PaystubApp({ sb = null, me = null, onSignOut = null } = {}) {
     return (React.createElement("div", { className: "ss-app bg-rose-50 text-slate-900" },
         React.createElement(AppStyles, null),
         React.createElement(GlassCursor, null),
+        React.createElement(UpdateWatcher, null),
         React.createElement("div", { className: "ss-orbs print:hidden", "aria-hidden": "true" },
             React.createElement("div", { className: "ss-orb ss-orb-1" }),
             React.createElement("div", { className: "ss-orb ss-orb-2" }),
@@ -7987,7 +8037,9 @@ function PaystubApp({ sb = null, me = null, onSignOut = null } = {}) {
                 React.createElement("img", { src: LOGO, alt: "Spicy Sweet" }),
                 React.createElement("span", { className: "ss-side-label" },
                     React.createElement("b", null, settings.companyName || "Spicy Sweet"),
-                    React.createElement("small", null, "Chatter Payroll"))),
+                    React.createElement("small", null,
+                        "Chatter Payroll \u00B7 v",
+                        APP_VERSION))),
             React.createElement("nav", { className: "ss-side-nav" },
                 React.createElement("p", { className: "ss-side-group ss-side-label" }, "Workspace"),
                 VIEWS.filter((v) => viewOn(v, features)).map((v) => {
