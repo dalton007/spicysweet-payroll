@@ -261,13 +261,17 @@ const parseDuration = (v) => {
 const STORE_KEY = "spicysweet.payroll.v2";
 // ---------- sound effects (synthesized, per device) ----------
 const SFX_KEY = STORE_KEY + ".sounds";
-const SFX_DEFAULT = { on: true, volume: 0.5, click: true, paid: true, success: true, error: true, fanfare: true };
+const SFX_DEFAULT = { on: true, volume: 0.5, cursor: true, click: true, open: true, toggle: true, paid: true, success: true, copy: true, remove: true, error: true, fanfare: true };
 const SFX_EVENTS = [
-    ["click", "Navigation taps", "A soft tick when switching pages"],
-    ["paid", "Marked paid", "A two-note chime when a paystub or invoice is marked paid"],
-    ["success", "Saved / imported", "A short pop when a file saves or a sheet imports"],
-    ["error", "Problems", "A low buzz when something can't be done"],
-    ["fanfare", "All done", "A little fanfare when everyone's been paid"],
+    ["click", "Navigation", "A soft wooden tick when switching pages"],
+    ["open", "Open a card", "A hushed whoosh when a paystub, invoice or dialog opens"],
+    ["toggle", "Toggles & checkboxes", "A tiny click when a switch flips"],
+    ["paid", "Marked paid", "A warm two-note bell when a paystub or invoice is marked paid"],
+    ["success", "Saved / imported", "A glassy pop when a file saves or a sheet imports"],
+    ["copy", "Copied", "A double tick when text lands on the clipboard"],
+    ["remove", "Removed", "A soft downward tone when something is deleted"],
+    ["error", "Problems", "A muted thud when something can't be done"],
+    ["fanfare", "All done", "A short four-note flourish when everyone's been paid"],
 ];
 let SFX_PREFS = (() => {
     try {
@@ -281,6 +285,10 @@ const saveSfxPrefs = (p) => {
     SFX_PREFS = { ...SFX_DEFAULT, ...p };
     try {
         window.localStorage.setItem(SFX_KEY, JSON.stringify(SFX_PREFS));
+    }
+    catch (err) { }
+    try {
+        window.dispatchEvent(new CustomEvent("ss-prefs"));
     }
     catch (err) { }
 };
@@ -297,13 +305,37 @@ const sfxCtx = () => {
         return null;
     }
 };
-// name → list of [frequency Hz, start s, length s, type, gain]
+// Each cue is a list of layers. tone: { f, f2 (glide-to), at, len, type, g, detune }.
+// noise: { noise: true, at, len, g, from, to } — a band-passed hiss sweeping from→to Hz.
+// Short attack, exponential release, a touch of detune for warmth: closer to a
+// well-made app than a beep.
 const SFX_PATTERNS = {
-    click: [[1800, 0, 0.03, "sine", 0.25]],
-    paid: [[660, 0, 0.12, "sine", 0.5], [990, 0.11, 0.18, "sine", 0.5]],
-    success: [[520, 0, 0.07, "triangle", 0.45], [780, 0.06, 0.1, "triangle", 0.4]],
-    error: [[180, 0, 0.16, "sawtooth", 0.3], [150, 0.14, 0.16, "sawtooth", 0.3]],
-    fanfare: [[523, 0, 0.12, "triangle", 0.5], [659, 0.12, 0.12, "triangle", 0.5], [784, 0.24, 0.12, "triangle", 0.5], [1047, 0.36, 0.3, "triangle", 0.55]],
+    click: [{ f: 1200, f2: 900, at: 0, len: 0.045, type: "sine", g: 0.22 }, { noise: true, at: 0, len: 0.03, g: 0.08, from: 2500, to: 1800 }],
+    open: [{ noise: true, at: 0, len: 0.22, g: 0.12, from: 600, to: 2400 }, { f: 520, f2: 780, at: 0.02, len: 0.18, type: "sine", g: 0.1 }],
+    toggle: [{ f: 1500, f2: 1100, at: 0, len: 0.035, type: "triangle", g: 0.14 }],
+    paid: [{ f: 784, at: 0, len: 0.28, type: "sine", g: 0.32, detune: 4 }, { f: 1568, at: 0, len: 0.18, type: "sine", g: 0.08 }, { f: 1175, at: 0.14, len: 0.42, type: "sine", g: 0.3, detune: -4 }, { f: 2350, at: 0.14, len: 0.2, type: "sine", g: 0.06 }],
+    success: [{ f: 880, f2: 1320, at: 0, len: 0.12, type: "sine", g: 0.22 }, { f: 1760, at: 0.09, len: 0.16, type: "sine", g: 0.12 }],
+    copy: [{ f: 1400, at: 0, len: 0.04, type: "sine", g: 0.18 }, { f: 1800, at: 0.07, len: 0.05, type: "sine", g: 0.18 }],
+    remove: [{ f: 620, f2: 360, at: 0, len: 0.18, type: "sine", g: 0.22 }, { noise: true, at: 0, len: 0.12, g: 0.06, from: 1200, to: 400 }],
+    error: [{ f: 220, f2: 180, at: 0, len: 0.14, type: "triangle", g: 0.22 }, { f: 165, at: 0.12, len: 0.2, type: "triangle", g: 0.2 }, { noise: true, at: 0, len: 0.08, g: 0.05, from: 500, to: 200 }],
+    fanfare: [
+        { f: 659, at: 0, len: 0.14, type: "sine", g: 0.3, detune: 3 },
+        { f: 784, at: 0.12, len: 0.14, type: "sine", g: 0.3, detune: -3 },
+        { f: 988, at: 0.24, len: 0.14, type: "sine", g: 0.3, detune: 3 },
+        { f: 1319, at: 0.36, len: 0.55, type: "sine", g: 0.34, detune: -3 },
+        { f: 2637, at: 0.36, len: 0.3, type: "sine", g: 0.07 },
+        { noise: true, at: 0.36, len: 0.3, g: 0.05, from: 3000, to: 6000 },
+    ],
+};
+let NOISE_BUF = null;
+const noiseBuffer = (ctx) => {
+    if (NOISE_BUF)
+        return NOISE_BUF;
+    const b = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
+    const d = b.getChannelData(0);
+    for (let i = 0; i < d.length; i++)
+        d[i] = Math.random() * 2 - 1;
+    return (NOISE_BUF = b);
 };
 function playSfx(name, force = false) {
     const p = SFX_PREFS;
@@ -315,20 +347,119 @@ function playSfx(name, force = false) {
     const vol = Math.max(0, Math.min(1, num(p.volume)));
     if (vol === 0)
         return;
-    (SFX_PATTERNS[name] || []).forEach(([f, at, len, type, g]) => {
+    const master = ctx.createGain();
+    master.gain.value = vol;
+    master.connect(ctx.destination);
+    (SFX_PATTERNS[name] || []).forEach((L) => {
+        const t0 = ctx.currentTime + (L.at || 0);
+        const env = ctx.createGain();
+        env.gain.setValueAtTime(0.0001, t0);
+        env.gain.exponentialRampToValueAtTime(L.g, t0 + 0.008);
+        env.gain.exponentialRampToValueAtTime(0.0001, t0 + L.len);
+        env.connect(master);
+        if (L.noise) {
+            const src = ctx.createBufferSource();
+            src.buffer = noiseBuffer(ctx);
+            const bp = ctx.createBiquadFilter();
+            bp.type = "bandpass";
+            bp.Q.value = 1.2;
+            bp.frequency.setValueAtTime(L.from, t0);
+            bp.frequency.exponentialRampToValueAtTime(L.to, t0 + L.len);
+            src.connect(bp);
+            bp.connect(env);
+            src.start(t0);
+            src.stop(t0 + L.len + 0.02);
+            return;
+        }
         const o = ctx.createOscillator();
-        const a = ctx.createGain();
-        o.type = type;
-        o.frequency.value = f;
-        const t0 = ctx.currentTime + at;
-        a.gain.setValueAtTime(0.0001, t0);
-        a.gain.exponentialRampToValueAtTime(g * vol, t0 + 0.01);
-        a.gain.exponentialRampToValueAtTime(0.0001, t0 + len);
-        o.connect(a);
-        a.connect(ctx.destination);
+        o.type = L.type || "sine";
+        o.frequency.setValueAtTime(L.f, t0);
+        if (L.f2)
+            o.frequency.exponentialRampToValueAtTime(L.f2, t0 + L.len);
+        if (L.detune)
+            o.detune.value = L.detune;
+        const lp = ctx.createBiquadFilter();
+        lp.type = "lowpass";
+        lp.frequency.value = 6000;
+        o.connect(lp);
+        lp.connect(env);
         o.start(t0);
-        o.stop(t0 + len + 0.02);
+        o.stop(t0 + L.len + 0.02);
     });
+}
+// a frosted dot that follows the pointer (mouse only — never on touch screens)
+function GlassCursor() {
+    const ref = useRef(null);
+    const [on, setOn] = useState(() => SFX_PREFS.cursor !== false);
+    useEffect(() => {
+        const sync = () => setOn(SFX_PREFS.cursor !== false);
+        window.addEventListener("ss-prefs", sync);
+        return () => window.removeEventListener("ss-prefs", sync);
+    }, []);
+    useEffect(() => {
+        if (!on) {
+            document.documentElement.classList.remove("ss-has-cursor");
+            return;
+        }
+        let fine = false;
+        try {
+            fine = window.matchMedia("(pointer: fine)").matches;
+        }
+        catch (err) { }
+        if (!fine)
+            return;
+        const el = ref.current;
+        if (!el)
+            return;
+        document.documentElement.classList.add("ss-has-cursor");
+        let x = -100, y = -100, cx = -100, cy = -100, raf = 0, hot = false, down = false, shown = false;
+        const move = (e) => {
+            x = e.clientX;
+            y = e.clientY;
+            if (!shown) {
+                shown = true;
+                el.style.opacity = "1";
+            }
+            const t = e.target && e.target.closest ? e.target.closest("button, a, [role=button], input, select, textarea, label, .ss-deck-card, .ss-row, tr.row") : null;
+            hot = !!t;
+            el.classList.toggle("is-hot", hot);
+            el.classList.toggle("is-text", !!(t && /^(INPUT|TEXTAREA)$/.test(t.tagName)));
+        };
+        const press = () => {
+            down = true;
+            el.classList.add("is-down");
+        };
+        const release = () => {
+            down = false;
+            el.classList.remove("is-down");
+        };
+        const leave = () => {
+            shown = false;
+            el.style.opacity = "0";
+        };
+        const tick = () => {
+            cx += (x - cx) * 0.22;
+            cy += (y - cy) * 0.22;
+            el.style.transform = `translate3d(${cx - 14}px, ${cy - 14}px, 0)`;
+            raf = requestAnimationFrame(tick);
+        };
+        window.addEventListener("mousemove", move, { passive: true });
+        window.addEventListener("mousedown", press);
+        window.addEventListener("mouseup", release);
+        document.documentElement.addEventListener("mouseleave", leave);
+        raf = requestAnimationFrame(tick);
+        return () => {
+            cancelAnimationFrame(raf);
+            window.removeEventListener("mousemove", move);
+            window.removeEventListener("mousedown", press);
+            window.removeEventListener("mouseup", release);
+            document.documentElement.removeEventListener("mouseleave", leave);
+            document.documentElement.classList.remove("ss-has-cursor");
+        };
+    }, [on]);
+    if (!on)
+        return null;
+    return React.createElement("div", { ref: ref, className: "ss-cursor print:hidden", "aria-hidden": "true" });
 }
 function SoundSettings() {
     const [prefs, setPrefs] = useState(SFX_PREFS);
@@ -339,12 +470,17 @@ function SoundSettings() {
     };
     return (React.createElement("section", { id: "set-sounds", className: "ss-card p-5 scroll-mt-24" },
         React.createElement("div", { className: "flex flex-wrap items-center gap-3 mb-1" },
-            React.createElement("h3", { className: "font-display text-base font-extrabold text-slate-900" }, "Sounds"),
+            React.createElement("h3", { className: "font-display text-base font-extrabold text-slate-900" }, "Sounds & cursor"),
             React.createElement("label", { className: "ml-auto flex items-center gap-2 text-sm font-semibold cursor-pointer" },
                 React.createElement("input", { type: "checkbox", className: "h-4 w-4 accent-pink-600", checked: !!prefs.on, onChange: (e) => set({ on: e.target.checked }) }),
                 "Sound effects ",
                 prefs.on ? "on" : "off")),
-        React.createElement("p", { className: "text-xs text-slate-500 mb-4" }, "Little cues for taps, payouts and saves. Saved on this device only \u2014 your phone and desktop can differ."),
+        React.createElement("p", { className: "text-xs text-slate-500 mb-3" }, "Little cues for taps, payouts and saves. Saved on this device only \u2014 your phone and desktop can differ."),
+        React.createElement("label", { className: "flex items-center gap-3 rounded-xl border border-pink-100 bg-white/70 px-3 py-2 mb-4 cursor-pointer max-w-md" },
+            React.createElement("input", { type: "checkbox", className: "h-4 w-4 accent-pink-600", checked: prefs.cursor !== false, onChange: (e) => set({ cursor: e.target.checked }) }),
+            React.createElement("span", { className: "min-w-0 flex-1" },
+                React.createElement("span", { className: "text-sm font-semibold block" }, "Glass cursor"),
+                React.createElement("span", { className: "text-[11px] text-slate-500" }, "A frosted dot that follows your mouse and swells over buttons. Mouse and trackpad only \u2014 never on touch."))),
         React.createElement("div", { className: "flex items-center gap-3 mb-4 max-w-md" },
             React.createElement("span", { className: "ss-eyebrow w-16" }, "Volume"),
             React.createElement("input", { type: "range", min: "0", max: "1", step: "0.05", value: prefs.volume, onChange: (e) => set({ volume: num(e.target.value) }), onMouseUp: () => playSfx("paid", true), onTouchEnd: () => playSfx("paid", true), className: "flex-1 accent-pink-600", disabled: !prefs.on }),
@@ -1393,6 +1529,7 @@ function SendOutView({ employees, settings, prizes, invoices, onMarkPaid, onUnpa
     };
     const start = () => {
         const first = cards.find((x) => !x.e.paid) || cards[0];
+        playSfx("open");
         setDone(false);
         setFocus(first ? first.e.id : null);
     };
@@ -1480,6 +1617,8 @@ function SendOutView({ employees, settings, prizes, invoices, onMarkPaid, onUnpa
             cards.length === 0 && React.createElement("p", { className: "text-sm text-slate-500" }, "No chatters yet \u2014 add them on the Payroll page."),
             React.createElement("div", { className: "ss-deck ss-stagger" }, cards.map(({ e, c }) => (React.createElement("button", { key: e.id, onClick: () => {
                     setDone(false);
+                    if (focus !== e.id)
+                        playSfx("open");
                     setFocus(focus === e.id ? null : e.id);
                 }, className: `ss-deck-card ${e.paid ? "is-paid" : ""} ${focus === e.id ? "is-on" : ""}`, title: e.paid ? `Paid${e.paidMethod ? " via " + e.paidMethod : ""}${e.paidDate ? " on " + e.paidDate : ""}` : "Open paystub" },
                 React.createElement("span", { className: "ss-deck-top" },
@@ -1549,6 +1688,8 @@ function SendOutView({ employees, settings, prizes, invoices, onMarkPaid, onUnpa
                 const T = invoiceTotals(inv);
                 return (React.createElement("button", { key: inv.id, onClick: () => {
                         setInvDone(false);
+                        if (invFocus !== inv.id)
+                            playSfx("open");
                         setInvFocus(invFocus === inv.id ? null : inv.id);
                     }, className: `ss-deck-card is-invoice ${inv.status === "paid" ? "is-paid" : ""} ${invFocus === inv.id ? "is-on" : ""}` },
                     React.createElement("span", { className: "ss-deck-top" },
@@ -4364,7 +4505,7 @@ const SETTINGS_SECTIONS = [
     { id: "models", label: "Models" },
     { id: "rules", label: "Strikes & prizes" },
     { id: "data", label: "Data" },
-    { id: "sounds", label: "Sounds" },
+    { id: "sounds", label: "Sounds & cursor" },
     { id: "features", label: "Features" },
 ];
 const VIEWS = [
@@ -5161,6 +5302,21 @@ function AppStyles() {
       .ss-in { animation-duration: .7s; }
       @keyframes ss-fade-up { from { opacity:0; transform: translateY(14px) scale(.985);} to { opacity:1; transform:none; } }
 
+      .ss-cursor { position: fixed; left: 0; top: 0; width: 28px; height: 28px; border-radius: 50%; pointer-events: none; z-index: 9999; opacity: 0;
+        background: rgba(255,255,255,.35); border: 1px solid rgba(255,255,255,.9);
+        box-shadow: 0 6px 18px -8px rgba(236,42,134,.55), inset 0 1px 0 rgba(255,255,255,.9), 0 0 0 1px rgba(236,42,134,.18);
+        backdrop-filter: blur(6px) saturate(1.6); -webkit-backdrop-filter: blur(6px) saturate(1.6);
+        transition: width .25s var(--ease), height .25s var(--ease), opacity .3s linear, background-color .25s, border-radius .25s var(--ease);
+        will-change: transform; mix-blend-mode: normal; }
+      .ss-cursor::after { content: ""; position: absolute; left: 50%; top: 50%; width: 4px; height: 4px; margin: -2px 0 0 -2px; border-radius: 50%; background: var(--pink); transition: transform .2s var(--ease); }
+      .ss-cursor.is-hot { width: 44px; height: 44px; margin: -8px 0 0 -8px; background: rgba(236,42,134,.12); border-color: rgba(236,42,134,.5); }
+      .ss-cursor.is-hot::after { transform: scale(.6); }
+      .ss-cursor.is-text { width: 6px; height: 28px; border-radius: 4px; margin: 0 0 0 11px; background: rgba(236,42,134,.25); }
+      .ss-cursor.is-text::after { display: none; }
+      .ss-cursor.is-down { transform-origin: center; background: rgba(236,42,134,.28); }
+      html.ss-has-cursor, html.ss-has-cursor body, html.ss-has-cursor a, html.ss-has-cursor button, html.ss-has-cursor label, html.ss-has-cursor select, html.ss-has-cursor [role=button] { cursor: none !important; }
+      html.ss-has-cursor input, html.ss-has-cursor textarea { cursor: none !important; }
+      @media (hover: none), (pointer: coarse) { .ss-cursor { display: none !important; } }
       .ss-menu { position: absolute; right: 0; top: calc(100% + 6px); z-index: 70; min-width: 260px; padding: 6px; border-radius: 14px; background: rgba(255,255,255,.92); border: 1px solid var(--edge); box-shadow: 0 18px 44px -18px rgba(28,17,38,.45); backdrop-filter: blur(var(--blur)); -webkit-backdrop-filter: blur(var(--blur)); }
       .ss-menu button { display: block; width: 100%; text-align: left; padding: 9px 11px; border-radius: 10px; }
       .ss-menu button:not(:disabled):hover { background: rgba(236,42,134,.09); transform: none; }
@@ -6248,6 +6404,7 @@ function PaystubApp({ sb = null, me = null, onSignOut = null } = {}) {
             if (creatorRep && creatorRep.creators.length) {
                 if (importKindRef.current === "chatters")
                     setImportNotice("That file is a creator report, so it was read as one.");
+                playSfx("open");
                 setCreatorPreview({ ...creatorRep, fileName: file.name });
                 return;
             }
@@ -6260,6 +6417,7 @@ function PaystubApp({ sb = null, me = null, onSignOut = null } = {}) {
                 setImportError("No shift rows found. Check that the file is the weekly stats export with an Employees column and Sales / Clocked hours columns.");
                 return;
             }
+            playSfx("open");
             setImportPreview({ ...parsed, fileName: file.name });
         }
         catch (err) {
@@ -7146,7 +7304,8 @@ function PaystubApp({ sb = null, me = null, onSignOut = null } = {}) {
     };
     const updateModelInvoice = (id, patch) => (patch && patch.status === "paid" ? playSfx("paid") : null) ||
         setSettings((s) => ({ ...s, modelInvoices: (s.modelInvoices || []).map((i) => (i.id === id ? { ...i, ...patch } : i)) }));
-    const removeModelInvoice = (id) => setSettings((s) => ({ ...s, modelInvoices: (s.modelInvoices || []).filter((i) => i.id !== id) }));
+    const removeModelInvoice = (id) => playSfx("remove") ||
+        setSettings((s) => ({ ...s, modelInvoices: (s.modelInvoices || []).filter((i) => i.id !== id) }));
     const invoicePdf = (inv) => {
         if (!(window.jspdf && window.jspdf.jsPDF))
             return setSaveMsg("PDFs need the downloaded or hosted app.");
@@ -7334,7 +7493,7 @@ function PaystubApp({ sb = null, me = null, onSignOut = null } = {}) {
     useEffect(() => {
         if (!toastMsg)
             return;
-        playSfx(/couldn't|can't|error|failed|refused/i.test(toastMsg) ? "error" : "success");
+        playSfx(/couldn't|can't|error|failed|refused/i.test(toastMsg) ? "error" : /copied/i.test(toastMsg) ? "copy" : "success");
         const t = setTimeout(() => {
             setCopyMsg("");
             setSaveMsg("");
@@ -7404,6 +7563,16 @@ function PaystubApp({ sb = null, me = null, onSignOut = null } = {}) {
                             : view === "pnl"
                                 ? ["Agency P&L", settings.payPeriod || "This week"]
                                 : ["Settings", "Pay rules, roster, goals and what the app keeps"];
+    // checkbox flips get a tiny click (delegated so every switch in the app counts)
+    useEffect(() => {
+        const h = (e) => {
+            const t = e.target;
+            if (t && t.tagName === "INPUT" && t.type === "checkbox")
+                playSfx("toggle");
+        };
+        document.addEventListener("change", h);
+        return () => document.removeEventListener("change", h);
+    }, []);
     // the bar gains a hairline once the page moves under it
     useEffect(() => {
         const onScroll = () => setStuck(window.scrollY > 6);
@@ -7586,6 +7755,7 @@ function PaystubApp({ sb = null, me = null, onSignOut = null } = {}) {
     }
     return (React.createElement("div", { className: "ss-app bg-rose-50 text-slate-900" },
         React.createElement(AppStyles, null),
+        React.createElement(GlassCursor, null),
         React.createElement("div", { className: "ss-orbs print:hidden", "aria-hidden": "true" },
             React.createElement("div", { className: "ss-orb ss-orb-1" }),
             React.createElement("div", { className: "ss-orb ss-orb-2" }),
