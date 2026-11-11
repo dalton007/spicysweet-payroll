@@ -423,7 +423,13 @@ const DEFAULT_SETTINGS = {
     autoAwards: {}, // goal bonuses the app ticked itself, so it never double-ticks
     managerName: "",
     managerRate: 3, // % of agency profit
-    invoices: [], // [{ id, model, amount, tbd }]
+    invoices: [], // [{ id, model, amount, tbd }] — legacy quick entries on the P&L page
+    // 5.1 model invoices (Invoices page) + what prints on them
+    agency: {},
+    invoiceNext: 1,
+    invoiceRate: 25,
+    invoiceTermsDays: 6,
+    modelInvoices: [],
     otherExpenses: [], // [{ id, label, amount }]
     // platform cuts — commission pays on what the agency actually receives
     ofCut: 20,
@@ -597,6 +603,658 @@ function calcEmployee(e, settings, prize) {
         totalRevenue,
         totalNetRevenue,
     };
+}
+// ======================================================================
+// 5.1 — model invoices
+// Mirrors the agency's existing invoices (INV-170 to Smeeps): a header
+// block, a 3-row meta table, one line per platform at "25% of $base",
+// subtotal / tax / total due, then the bank instructions.
+// ======================================================================
+const DEFAULT_AGENCY = {
+    legalName: "",
+    address1: "",
+    address2: "",
+    cityStateZip: "",
+    email: "",
+    phone: "",
+    bankName: "",
+    wireRouting: "",
+    achRouting: "",
+    account: "",
+    payNote: "",
+};
+const agencyOf = (settings) => ({ ...DEFAULT_AGENCY, ...(settings.agency || {}) });
+const INVOICE_STATUS = { draft: "Draft", sent: "Sent", paid: "Paid" };
+const INVOICE_PLATFORMS = ["OnlyFans", "Fansly", "Other"];
+const invoiceNumber = (settings) => `INV-${Math.max(1, Math.round(num(settings.invoiceNext)) || 1)}`;
+// addDays is defined further down (shared with the week browser)
+const ordinal = (n) => n + (n % 100 >= 11 && n % 100 <= 13 ? "th" : ["th", "st", "nd", "rd"][n % 10] || "th");
+// 2026-10-28 → "Oct 28th, 2026", the way the agency already writes it
+const prettyDate = (iso) => {
+    const d = new Date((iso || "") + "T12:00:00");
+    if (!iso || isNaN(d.getTime()))
+        return iso || "—";
+    return `${d.toLocaleString("en-US", { month: "short" })} ${ordinal(d.getDate())}, ${d.getFullYear()}`;
+};
+const lineAmount = (l) => round2((num(l.qty) || 1) * num(l.base) * (num(l.rate) / 100));
+const invoiceTotals = (inv) => {
+    const subtotal = round2((inv.lines || []).reduce((a, l) => a + lineAmount(l), 0));
+    const tax = round2(num(inv.tax));
+    return { subtotal, tax, total: round2(subtotal + tax) };
+};
+const newInvoiceLine = (platform = "OnlyFans", period = "", base = "", rate = 25) => ({
+    id: uid(),
+    platform,
+    period,
+    qty: 1,
+    rate,
+    base,
+});
+function newInvoice(settings, model = "", prefill = null) {
+    const date = todayStr(settings);
+    const rate = num(settings.invoiceRate) || 25;
+    const period = settings.payPeriod || "";
+    let lines = [];
+    if (prefill) {
+        if (num(prefill.of) > 0)
+            lines.push(newInvoiceLine("OnlyFans", period, round2(num(prefill.of)), rate));
+        if (num(prefill.fansly) > 0)
+            lines.push(newInvoiceLine("Fansly", period, round2(num(prefill.fansly)), rate));
+    }
+    if (!lines.length)
+        lines = [newInvoiceLine("OnlyFans", period, "", rate)];
+    return {
+        id: uid(),
+        number: invoiceNumber(settings),
+        model,
+        date,
+        due: addDays(date, num(settings.invoiceTermsDays) || 6),
+        payPeriod: period,
+        lines,
+        tax: 0,
+        status: "draft",
+        paidDate: "",
+        paidMethod: "",
+        notes: "",
+    };
+}
+const invoiceLineLabel = (l) => `${l.platform === "Other" ? "" : l.platform + " "}${l.period || ""}`.trim() || "Management fee";
+const invoiceFileName = (inv) => `${inv.number || "Invoice"}_${(inv.model || "model").replace(/[\\/:*?"<>|\s]/g, "")}.pdf`;
+// the invoice as a jsPDF document
+function makeInvoicePdf(inv, settings) {
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ unit: "mm", format: "letter" });
+    const A = agencyOf(settings);
+    const T = invoiceTotals(inv);
+    const L = 22, R = 194, W = R - L;
+    const ink = [28, 17, 38], mute = [100, 90, 110], pink = [194, 21, 107];
+    // title
+    doc.setTextColor(...ink);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(24);
+    doc.text("INVOICE", 108, 26, { align: "center" });
+    doc.setDrawColor(236, 42, 134);
+    doc.setLineWidth(0.5);
+    doc.line(L, 31, R, 31);
+    try {
+        doc.addImage(LOGO, "PNG", R - 26, 8, 26, 12);
+    }
+    catch (err) { }
+    // agency block
+    let y = 41;
+    doc.setFontSize(10.5);
+    doc.setFont("helvetica", "bold");
+    doc.text(A.legalName || settings.companyName || "Spicy Sweet", L, y);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(9.5);
+    y += 6;
+    doc.text("Address:", L, y);
+    [A.address1, A.address2, A.cityStateZip].filter(Boolean).forEach((ln) => {
+        y += 5;
+        doc.text(ln, L, y);
+    });
+    // billed to (right column)
+    if (inv.model) {
+        doc.setFontSize(8);
+        doc.setTextColor(...mute);
+        doc.text("BILLED TO", R, 41, { align: "right" });
+        doc.setFontSize(11);
+        doc.setTextColor(...ink);
+        doc.setFont("helvetica", "bold");
+        doc.text(inv.model, R, 47, { align: "right" });
+        doc.setFont("helvetica", "normal");
+    }
+    y += 10;
+    // meta table
+    doc.setFontSize(9.5);
+    doc.setTextColor(...ink);
+    doc.setDrawColor(28, 17, 38);
+    doc.setLineWidth(0.25);
+    const metaRows = [
+        ["Invoice Number:", inv.number || ""],
+        ["Invoice Date:", prettyDate(inv.date)],
+        ["Payment Due:", prettyDate(inv.due)],
+    ];
+    metaRows.forEach(([k, v]) => {
+        doc.rect(L, y - 4.3, W / 2, 6);
+        doc.rect(L + W / 2, y - 4.3, W / 2, 6);
+        doc.text(k, L + 2, y);
+        doc.text(String(v), L + W / 2 + 2, y);
+        y += 6;
+    });
+    y += 8;
+    const contact = [A.email ? `Email: ${A.email}` : "", A.phone ? `Phone: ${A.phone}` : ""].filter(Boolean).join("  |  ");
+    if (contact) {
+        doc.text(contact, L, y);
+        y += 10;
+    }
+    // lines table
+    const cols = [L, L + 62, L + 102, L + 142, R];
+    const head = ["Description", "Quantity", "Rate", "Amount"];
+    doc.setFillColor(255, 240, 247);
+    doc.rect(L, y - 4.5, W, 6.5, "F");
+    doc.rect(L, y - 4.5, W, 6.5);
+    doc.setFont("helvetica", "bold");
+    head.forEach((h, i) => doc.text(h, cols[i] + 2, y));
+    doc.setFont("helvetica", "normal");
+    y += 7;
+    const top = y - 4.5;
+    (inv.lines || []).forEach((l) => {
+        const label = doc.splitTextToSize(invoiceLineLabel(l), 58);
+        doc.text(label, cols[0] + 2, y);
+        doc.text(String(num(l.qty) || 1), cols[1] + 2, y);
+        doc.text(`${num(l.rate)}% of ${fmt(num(l.base))}`, cols[2] + 2, y);
+        doc.setFont("helvetica", "bold");
+        doc.text(fmt(lineAmount(l)), cols[3] + 2, y);
+        doc.setFont("helvetica", "normal");
+        y += 5 * Math.max(1, label.length) + 4;
+    });
+    const bottom = Math.max(y, top + 40);
+    doc.rect(L, top, W, bottom - top);
+    cols.slice(1, 4).forEach((x) => doc.line(x, top - 6.5, x, bottom));
+    y = bottom + 10;
+    // totals
+    doc.setFontSize(10);
+    doc.text(`Subtotal: ${fmt(T.subtotal)}`, L, y);
+    y += 7;
+    doc.text(`Tax: ${fmt(T.tax)}`, L, y);
+    y += 7;
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(11.5);
+    doc.text(`Total Due: ${fmt(T.total)}`, L, y);
+    doc.setFont("helvetica", "normal");
+    if (inv.notes) {
+        y += 9;
+        doc.setFontSize(9);
+        doc.setTextColor(...mute);
+        doc.text(doc.splitTextToSize(inv.notes, W), L, y);
+        doc.setTextColor(...ink);
+        y += 6;
+    }
+    // payment instructions
+    const bank = [
+        A.bankName ? `Bank Name: ${A.bankName}` : "",
+        A.wireRouting ? `Routing Number (Wire): ${A.wireRouting}` : "",
+        A.account ? `Account Number: ${A.account}` : "",
+        A.achRouting ? `ACH routing number: ${A.achRouting} (only use this for ACH transfers, not wire transfers)` : "",
+        A.payNote || "",
+    ].filter(Boolean);
+    if (bank.length) {
+        if (y > 215) {
+            doc.addPage();
+            y = 30;
+        }
+        else
+            y += 16;
+        doc.setFontSize(11);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(...pink);
+        doc.text("Payment Instructions", L, y);
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(9.5);
+        doc.setTextColor(...ink);
+        bank.forEach((ln) => {
+            y += 5.5;
+            doc.text(doc.splitTextToSize(ln, W), L, y);
+        });
+    }
+    if (inv.status === "paid") {
+        doc.setFontSize(9);
+        doc.setTextColor(30, 158, 115);
+        doc.text(`PAID${inv.paidDate ? " " + prettyDate(inv.paidDate) : ""}${inv.paidMethod ? " via " + inv.paidMethod : ""}`, R, 26, { align: "right" });
+    }
+    return doc;
+}
+// the same invoice drawn on screen (preview + the send-out focus card)
+function InvoiceSheet({ inv, settings, compact = false }) {
+    const A = agencyOf(settings);
+    const T = invoiceTotals(inv);
+    return (React.createElement("div", { className: `ss-sheet ${compact ? "is-compact" : ""}` },
+        React.createElement("div", { className: "flex items-start justify-between gap-3" },
+            React.createElement("div", null,
+                React.createElement("p", { className: "font-display text-2xl font-extrabold tracking-tight" }, "INVOICE"),
+                React.createElement("p", { className: "text-[13px] font-bold mt-2" }, A.legalName || settings.companyName),
+                [A.address1, A.address2, A.cityStateZip].filter(Boolean).map((ln, i) => (React.createElement("p", { key: i, className: "text-[12px] text-slate-600" }, ln)))),
+            React.createElement("div", { className: "text-right" },
+                React.createElement("img", { src: LOGO, alt: "", style: { height: 36, width: "auto", display: "inline-block" } }),
+                inv.model && (React.createElement(React.Fragment, null,
+                    React.createElement("p", { className: "ss-eyebrow mt-2" }, "Billed to"),
+                    React.createElement("p", { className: "font-bold" }, inv.model))))),
+        React.createElement("div", { className: "ss-sheet-meta mt-4" }, [["Invoice Number", inv.number], ["Invoice Date", prettyDate(inv.date)], ["Payment Due", prettyDate(inv.due)]].map(([k, v]) => (React.createElement("div", { key: k },
+            React.createElement("span", null, k),
+            React.createElement("b", null, v))))),
+        (A.email || A.phone) && (React.createElement("p", { className: "text-[12px] text-slate-600 mt-3" }, [A.email && `Email: ${A.email}`, A.phone && `Phone: ${A.phone}`].filter(Boolean).join("  |  "))),
+        React.createElement("table", { className: "ss-sheet-table mt-4" },
+            React.createElement("thead", null,
+                React.createElement("tr", null,
+                    React.createElement("th", null, "Description"),
+                    React.createElement("th", null, "Qty"),
+                    React.createElement("th", null, "Rate"),
+                    React.createElement("th", { className: "r" }, "Amount"))),
+            React.createElement("tbody", null, (inv.lines || []).map((l) => (React.createElement("tr", { key: l.id },
+                React.createElement("td", null, invoiceLineLabel(l)),
+                React.createElement("td", null, num(l.qty) || 1),
+                React.createElement("td", { className: "tabular" },
+                    num(l.rate),
+                    "% of ",
+                    fmt(num(l.base))),
+                React.createElement("td", { className: "r font-bold" }, fmt(lineAmount(l)))))))),
+        React.createElement("div", { className: "mt-4 space-y-1 text-[13px] tabular" },
+            React.createElement("p", null,
+                "Subtotal: ",
+                React.createElement("b", null, fmt(T.subtotal))),
+            React.createElement("p", null,
+                "Tax: ",
+                React.createElement("b", null, fmt(T.tax))),
+            React.createElement("p", { className: "text-[15px]" },
+                "Total Due: ",
+                React.createElement("b", { className: "font-display text-lg" }, fmt(T.total)))),
+        !compact && (A.bankName || A.account) && (React.createElement("div", { className: "mt-5 text-[12px] space-y-0.5" },
+            React.createElement("p", { className: "font-bold text-pink-700" }, "Payment Instructions"),
+            A.bankName && React.createElement("p", null,
+                "Bank Name: ",
+                A.bankName),
+            A.wireRouting && React.createElement("p", null,
+                "Routing Number (Wire): ",
+                A.wireRouting),
+            A.account && React.createElement("p", null,
+                "Account Number: ",
+                A.account),
+            A.achRouting && React.createElement("p", { className: "text-slate-600" },
+                "ACH routing number: ",
+                A.achRouting,
+                " (only use this for ACH transfers, not wire transfers)"),
+            A.payNote && React.createElement("p", { className: "text-slate-600" }, A.payNote))),
+        inv.status === "paid" && React.createElement("p", { className: "ss-sheet-stamp" }, "PAID")));
+}
+// a chatter's pay, the short way, for the send-out deck
+function StubSummary({ emp, calc, settings }) {
+    const c = calc;
+    const rows = [
+        [`Hourly pay · ${c.totalHours} hrs`, c.hourlyTotal],
+        [`Commission on ${fmt(c.totalNetRevenue)} net`, c.commissionTotal],
+        c.weeklyBonusPay > 0 ? ["Weekly goal bonuses", c.weeklyBonusPay] : null,
+        c.monthlyBonusPay > 0 ? ["Monthly goal bonus", c.monthlyBonusPay] : null,
+        emp.headChatter ? ["Head chatter pay", c.headChatterPay] : null,
+        c.prizeAmount > 0 ? [`Leaderboard prize · ${c.prizeLabel || "this week"}`, c.prizeAmount] : null,
+        ...c.adjustments.map((a) => [`${num(a.amount) < 0 ? "Deduction" : "Bonus"}${a.label ? " · " + a.label : ""}`, num(a.amount)]),
+    ].filter(Boolean);
+    return (React.createElement("div", { className: "ss-sheet is-stub" },
+        React.createElement("div", { className: "flex items-center gap-3" },
+            React.createElement("span", { className: "ss-avatar is-lg" }, initials(emp.name)),
+            React.createElement("div", { className: "min-w-0" },
+                React.createElement("p", { className: "font-display text-lg font-extrabold leading-tight truncate" }, emp.name || "—"),
+                React.createElement("p", { className: "text-[12px] text-slate-500" }, [emp.team, emp.headChatter ? "Head chatter" : "", settings.payPeriod].filter(Boolean).join(" · "))),
+            React.createElement("div", { className: "ml-auto text-right" },
+                React.createElement("p", { className: "ss-eyebrow" }, "Take-home"),
+                React.createElement("p", { className: "font-display text-2xl font-extrabold tabular" }, fmt(c.gross)))),
+        React.createElement("div", { className: "mt-4 divide-y divide-pink-100 text-[13px]" }, rows.map(([k, v], i) => (React.createElement("div", { key: i, className: "flex justify-between py-1.5" },
+            React.createElement("span", { className: "text-slate-600" }, k),
+            React.createElement("span", { className: `tabular font-semibold ${v < 0 ? "text-red-600" : ""}` }, v < 0 ? "−" + fmt(-v) : fmt(v)))))),
+        c.strikes > 0 && React.createElement("p", { className: "mt-2 text-[11.5px] text-red-600" },
+            c.strikes,
+            " strike",
+            c.strikes === 1 ? "" : "s",
+            " on record.")));
+}
+const initials = (name) => String(name || "?")
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => w[0].toUpperCase())
+    .join("") || "?";
+// ---------- Send out: every paystub and invoice as a card deck ----------
+function SendOutView({ employees, settings, prizes, invoices, onMarkPaid, onUnpay, onMarkInvoice, onStubPdf, onStubPng, onInvoicePdf, onAllPdfs, canPng, }) {
+    const cards = useMemo(() => employees
+        .map((e) => ({ e, c: calcEmployee(e, settings, prizes[e.id]) }))
+        .sort((a, b) => (a.e.team || "").localeCompare(b.e.team || "") || (a.e.name || "").localeCompare(b.e.name || "")), [employees, settings, prizes]);
+    const [focus, setFocus] = useState(null);
+    const [method, setMethod] = useState("");
+    const [done, setDone] = useState(false);
+    const [invFocus, setInvFocus] = useState(null);
+    const [invDone, setInvDone] = useState(false);
+    const paidCount = cards.filter((x) => x.e.paid).length;
+    const cur = cards.find((x) => x.e.id === focus) || null;
+    const nextUnpaid = (afterId) => {
+        const i = cards.findIndex((x) => x.e.id === afterId);
+        const order = [...cards.slice(i + 1), ...cards.slice(0, Math.max(0, i))];
+        const n = order.find((x) => !x.e.paid && x.e.id !== afterId);
+        return n ? n.e.id : null;
+    };
+    const start = () => {
+        const first = cards.find((x) => !x.e.paid) || cards[0];
+        setDone(false);
+        setFocus(first ? first.e.id : null);
+    };
+    const payAndNext = () => {
+        if (!cur)
+            return;
+        onMarkPaid(cur.e.id, method);
+        const n = nextUnpaid(cur.e.id);
+        if (n)
+            setFocus(n);
+        else {
+            setFocus(null);
+            setDone(true);
+        }
+    };
+    const skip = () => {
+        if (!cur)
+            return;
+        const n = nextUnpaid(cur.e.id);
+        if (n)
+            setFocus(n);
+        else
+            setFocus(null);
+    };
+    const invCards = invoices;
+    const invCur = invCards.find((x) => x.id === invFocus) || null;
+    const invPaid = invCards.filter((x) => x.status === "paid").length;
+    const nextOpenInvoice = (afterId) => {
+        const i = invCards.findIndex((x) => x.id === afterId);
+        const order = [...invCards.slice(i + 1), ...invCards.slice(0, Math.max(0, i))];
+        const n = order.find((x) => x.status !== "paid" && x.id !== afterId);
+        return n ? n.id : null;
+    };
+    const invPayAndNext = () => {
+        if (!invCur)
+            return;
+        onMarkInvoice(invCur.id, { status: "paid", paidDate: todayStr(settings), paidMethod: method });
+        const n = nextOpenInvoice(invCur.id);
+        if (n)
+            setInvFocus(n);
+        else {
+            setInvFocus(null);
+            setInvDone(true);
+        }
+    };
+    const methodPicker = (React.createElement("label", { className: "block" },
+        React.createElement("span", { className: "ss-eyebrow block mb-1" }, "Paid how"),
+        React.createElement("select", { className: inputCls, value: method, onChange: (e) => setMethod(e.target.value) },
+            React.createElement("option", { value: "" }, "\u2014 pick a method \u2014"),
+            PAY_METHODS.map((m) => (React.createElement("option", { key: m, value: m }, m))))));
+    return (React.createElement("div", { className: "space-y-6 max-w-7xl mx-auto" },
+        React.createElement("section", { className: "ss-card ss-in p-5 sm:p-6" },
+            React.createElement("div", { className: "flex flex-wrap items-center gap-3 mb-5" },
+                React.createElement("div", { className: "min-w-0" },
+                    React.createElement("p", { className: "ss-eyebrow" }, "Paystubs"),
+                    React.createElement("h2", { className: "font-display text-xl font-extrabold tracking-tight" }, "Send out paystubs"),
+                    React.createElement("p", { className: "text-[12.5px] text-slate-500 mt-0.5" }, "Click a card, send the stub, mark it paid \u2014 the next unpaid chatter slides in.")),
+                React.createElement("div", { className: "ml-auto flex flex-wrap items-center gap-2" },
+                    React.createElement("span", { className: `ss-chip ${paidCount === cards.length && cards.length ? "is-mint" : ""}` },
+                        paidCount,
+                        " of ",
+                        cards.length,
+                        " paid"),
+                    React.createElement("button", { onClick: onAllPdfs, className: "ss-btn ss-btn-ghost py-1.5" },
+                        React.createElement(Icon, { name: "save", size: 14 }),
+                        "All PDFs"),
+                    React.createElement("button", { onClick: start, className: "ss-btn ss-btn-primary ss-sheen py-1.5", disabled: !cards.length },
+                        React.createElement(Icon, { name: "sendout", size: 14 }),
+                        paidCount && paidCount < cards.length ? "Continue" : "Start"))),
+            React.createElement("div", { className: "ss-progress mb-5", "aria-hidden": "true" },
+                React.createElement("div", { className: "ss-progress-bar", style: { width: `${cards.length ? (paidCount / cards.length) * 100 : 0}%` } })),
+            done && (React.createElement("div", { className: "ss-done ss-pop mb-5" },
+                React.createElement("span", { className: "ss-done-ring" },
+                    React.createElement(Icon, { name: "check", size: 22 })),
+                React.createElement("div", null,
+                    React.createElement("p", { className: "font-display text-lg font-extrabold" }, "Everyone's been paid \uD83C\uDF89"),
+                    React.createElement("p", { className: "text-[12.5px] text-slate-600" },
+                        cards.length,
+                        " paystubs marked paid for ",
+                        settings.payPeriod || "this week",
+                        ".")),
+                React.createElement("button", { onClick: () => setDone(false), className: "ml-auto ss-btn ss-btn-ghost py-1.5" }, "Close"))),
+            cards.length === 0 && React.createElement("p", { className: "text-sm text-slate-500" }, "No chatters yet \u2014 add them on the Payroll page."),
+            React.createElement("div", { className: "ss-deck ss-stagger" }, cards.map(({ e, c }) => (React.createElement("button", { key: e.id, onClick: () => {
+                    setDone(false);
+                    setFocus(focus === e.id ? null : e.id);
+                }, className: `ss-deck-card ${e.paid ? "is-paid" : ""} ${focus === e.id ? "is-on" : ""}`, title: e.paid ? `Paid${e.paidMethod ? " via " + e.paidMethod : ""}${e.paidDate ? " on " + e.paidDate : ""}` : "Open paystub" },
+                React.createElement("span", { className: "ss-deck-top" },
+                    React.createElement("span", { className: "ss-avatar" }, initials(e.name)),
+                    React.createElement("span", { className: "ss-deck-status" }, e.paid ? React.createElement(Icon, { name: "check", size: 13 }) : null)),
+                React.createElement("span", { className: "ss-deck-name" }, e.name || "—"),
+                React.createElement("span", { className: "ss-deck-sub" }, [e.team ? e.team.replace("Team ", "") : "", e.headChatter ? "Head" : ""].filter(Boolean).join(" · ") || "No team"),
+                React.createElement("span", { className: "ss-deck-amt" }, fmt(c.gross)),
+                React.createElement("span", { className: "ss-deck-foot" }, e.paid ? `Paid${e.paidMethod ? " · " + e.paidMethod : ""}` : "Unpaid"))))),
+            cur && (React.createElement("div", { key: cur.e.id, className: "ss-focus ss-pop mt-5" },
+                React.createElement("div", { className: "ss-focus-sheet" },
+                    React.createElement(StubSummary, { emp: cur.e, calc: cur.c, settings: settings })),
+                React.createElement("div", { className: "ss-focus-side" },
+                    React.createElement("p", { className: "ss-eyebrow" },
+                        cards.findIndex((x) => x.e.id === cur.e.id) + 1,
+                        " of ",
+                        cards.length,
+                        cur.e.paid ? " · already paid" : ""),
+                    methodPicker,
+                    React.createElement("button", { onClick: payAndNext, className: "ss-btn ss-btn-primary ss-sheen w-full justify-center py-2.5" },
+                        React.createElement(Icon, { name: "check", size: 15 }),
+                        cur.e.paid ? "Next unpaid" : "Mark paid & next"),
+                    React.createElement("div", { className: "grid grid-cols-2 gap-2" },
+                        React.createElement("button", { onClick: () => onStubPdf(cur.e), className: "ss-btn ss-btn-ghost justify-center" }, "PDF"),
+                        React.createElement("button", { onClick: () => onStubPng(cur.e), className: "ss-btn ss-btn-ghost justify-center", disabled: !canPng }, "Stats card"),
+                        React.createElement("button", { onClick: skip, className: "ss-btn ss-btn-ghost justify-center" }, "Skip"),
+                        cur.e.paid ? (React.createElement("button", { onClick: () => onUnpay(cur.e.id), className: "ss-btn ss-btn-ghost justify-center" }, "Undo paid")) : (React.createElement("button", { onClick: () => setFocus(null), className: "ss-btn ss-btn-ghost justify-center" }, "Close"))),
+                    cur.e.paid && (React.createElement("p", { className: "text-[11.5px] text-slate-500" },
+                        "Marked paid",
+                        cur.e.paidMethod ? ` via ${cur.e.paidMethod}` : "",
+                        cur.e.paidDate ? ` on ${cur.e.paidDate}` : "",
+                        ".")))))),
+        React.createElement("section", { className: "ss-card ss-in ss-d2 p-5 sm:p-6" },
+            React.createElement("div", { className: "flex flex-wrap items-center gap-3 mb-5" },
+                React.createElement("div", { className: "min-w-0" },
+                    React.createElement("p", { className: "ss-eyebrow" }, "Model invoices"),
+                    React.createElement("h2", { className: "font-display text-xl font-extrabold tracking-tight" }, "Send out invoices"),
+                    React.createElement("p", { className: "text-[12.5px] text-slate-500 mt-0.5" }, "Open an invoice, download the PDF, and mark it paid once the money lands.")),
+                React.createElement("div", { className: "ml-auto flex flex-wrap items-center gap-2" },
+                    React.createElement("span", { className: `ss-chip ${invPaid === invCards.length && invCards.length ? "is-mint" : ""}` },
+                        invPaid,
+                        " of ",
+                        invCards.length,
+                        " paid"),
+                    React.createElement("button", { onClick: () => {
+                            const first = invCards.find((x) => x.status !== "paid") || invCards[0];
+                            setInvDone(false);
+                            setInvFocus(first ? first.id : null);
+                        }, className: "ss-btn ss-btn-dark py-1.5", disabled: !invCards.length },
+                        React.createElement(Icon, { name: "sendout", size: 14 }),
+                        "Start"))),
+            React.createElement("div", { className: "ss-progress mb-5", "aria-hidden": "true" },
+                React.createElement("div", { className: "ss-progress-bar is-ink", style: { width: `${invCards.length ? (invPaid / invCards.length) * 100 : 0}%` } })),
+            invDone && (React.createElement("div", { className: "ss-done ss-pop mb-5" },
+                React.createElement("span", { className: "ss-done-ring" },
+                    React.createElement(Icon, { name: "check", size: 22 })),
+                React.createElement("div", null,
+                    React.createElement("p", { className: "font-display text-lg font-extrabold" }, "Every invoice is paid"),
+                    React.createElement("p", { className: "text-[12.5px] text-slate-600" },
+                        invCards.length,
+                        " invoice",
+                        invCards.length === 1 ? "" : "s",
+                        " settled.")),
+                React.createElement("button", { onClick: () => setInvDone(false), className: "ml-auto ss-btn ss-btn-ghost py-1.5" }, "Close"))),
+            invCards.length === 0 && React.createElement("p", { className: "text-sm text-slate-500" }, "No invoices yet \u2014 create one on the Invoices page."),
+            React.createElement("div", { className: "ss-deck ss-stagger" }, invCards.map((inv) => {
+                const T = invoiceTotals(inv);
+                return (React.createElement("button", { key: inv.id, onClick: () => {
+                        setInvDone(false);
+                        setInvFocus(invFocus === inv.id ? null : inv.id);
+                    }, className: `ss-deck-card is-invoice ${inv.status === "paid" ? "is-paid" : ""} ${invFocus === inv.id ? "is-on" : ""}` },
+                    React.createElement("span", { className: "ss-deck-top" },
+                        React.createElement("span", { className: "ss-avatar is-ink" }, initials(inv.model)),
+                        React.createElement("span", { className: "ss-deck-status" }, inv.status === "paid" ? React.createElement(Icon, { name: "check", size: 13 }) : null)),
+                    React.createElement("span", { className: "ss-deck-name" }, inv.model || "Unnamed model"),
+                    React.createElement("span", { className: "ss-deck-sub" },
+                        inv.number,
+                        " \u00B7 due ",
+                        prettyDate(inv.due)),
+                    React.createElement("span", { className: "ss-deck-amt" }, fmt(T.total)),
+                    React.createElement("span", { className: "ss-deck-foot" }, INVOICE_STATUS[inv.status] || "Draft")));
+            })),
+            invCur && (React.createElement("div", { key: invCur.id, className: "ss-focus ss-pop mt-5" },
+                React.createElement("div", { className: "ss-focus-sheet" },
+                    React.createElement(InvoiceSheet, { inv: invCur, settings: settings, compact: true })),
+                React.createElement("div", { className: "ss-focus-side" },
+                    React.createElement("p", { className: "ss-eyebrow" },
+                        invCards.findIndex((x) => x.id === invCur.id) + 1,
+                        " of ",
+                        invCards.length,
+                        " \u00B7 ",
+                        INVOICE_STATUS[invCur.status] || "Draft"),
+                    methodPicker,
+                    React.createElement("button", { onClick: invPayAndNext, className: "ss-btn ss-btn-primary ss-sheen w-full justify-center py-2.5" },
+                        React.createElement(Icon, { name: "check", size: 15 }),
+                        invCur.status === "paid" ? "Next open" : "Mark paid & next"),
+                    React.createElement("div", { className: "grid grid-cols-2 gap-2" },
+                        React.createElement("button", { onClick: () => onInvoicePdf(invCur), className: "ss-btn ss-btn-ghost justify-center" }, "PDF"),
+                        invCur.status === "draft" ? (React.createElement("button", { onClick: () => onMarkInvoice(invCur.id, { status: "sent" }), className: "ss-btn ss-btn-ghost justify-center" }, "Mark sent")) : invCur.status === "paid" ? (React.createElement("button", { onClick: () => onMarkInvoice(invCur.id, { status: "sent", paidDate: "", paidMethod: "" }), className: "ss-btn ss-btn-ghost justify-center" }, "Undo paid")) : (React.createElement("button", { onClick: () => setInvFocus(null), className: "ss-btn ss-btn-ghost justify-center" }, "Close")))))))));
+}
+// ---------- Invoices: create, edit, preview ----------
+function InvoicesView({ invoices, settings, modelNames, modelReport, onCreate, onUpdate, onRemove, onPdf, canEditRules }) {
+    const [sel, setSel] = useState(invoices[0] ? invoices[0].id : null);
+    const [filter, setFilter] = useState("");
+    const [newModel, setNewModel] = useState("");
+    const [confirmDel, setConfirmDel] = useState(false);
+    const inv = invoices.find((x) => x.id === sel) || null;
+    useEffect(() => {
+        if (sel && !invoices.some((x) => x.id === sel))
+            setSel(invoices[0] ? invoices[0].id : null);
+    }, [invoices, sel]);
+    const list = invoices.filter((x) => !filter || x.status === filter);
+    const A = agencyOf(settings);
+    const bankMissing = !A.bankName && !A.account;
+    const create = () => {
+        const name = newModel.trim();
+        const rep = modelReport.find((m) => m.name.toLowerCase() === name.toLowerCase());
+        const id = onCreate(name, rep ? { of: rep.of, fansly: rep.fansly } : null);
+        setNewModel("");
+        setSel(id);
+        setConfirmDel(false);
+    };
+    const patchLine = (lid, patch) => onUpdate(inv.id, { lines: inv.lines.map((l) => (l.id === lid ? { ...l, ...patch } : l)) });
+    const T = inv ? invoiceTotals(inv) : null;
+    return (React.createElement("div", { className: "max-w-7xl mx-auto ss-inv-layout" },
+        React.createElement("aside", { className: "space-y-3" },
+            React.createElement("div", { className: "ss-card ss-in p-4" },
+                React.createElement("p", { className: "ss-eyebrow mb-2" }, "New invoice"),
+                React.createElement("input", { list: "ss-model-names", className: inputCls, placeholder: "Model name", value: newModel, onChange: (e) => setNewModel(e.target.value), onKeyDown: (e) => e.key === "Enter" && newModel.trim() && create() }),
+                React.createElement("datalist", { id: "ss-model-names" }, modelNames.map((m) => (React.createElement("option", { key: m, value: m })))),
+                React.createElement("button", { onClick: create, disabled: !newModel.trim(), className: "ss-btn ss-btn-primary ss-sheen w-full justify-center mt-2" },
+                    React.createElement(Icon, { name: "plus", size: 14 }),
+                    "Create ",
+                    invoiceNumber(settings)),
+                React.createElement("p", { className: "text-[11px] text-slate-500 mt-2" },
+                    "Models with sales this week prefill their OnlyFans and Fansly lines at ",
+                    num(settings.invoiceRate) || 25,
+                    "%."),
+                bankMissing && canEditRules && (React.createElement("p", { className: "text-[11px] text-amber-700 mt-2" }, "Add your bank details under Settings \u203A Invoices so they print on every invoice."))),
+            React.createElement("div", { className: "ss-card ss-in ss-d1 p-2" },
+                React.createElement("div", { className: "flex gap-1 p-1" }, [["", "All"], ["draft", "Draft"], ["sent", "Sent"], ["paid", "Paid"]].map(([k, label]) => (React.createElement("button", { key: k || "all", onClick: () => setFilter(k), className: `flex-1 rounded-lg px-2 py-1 text-[11.5px] font-bold ${filter === k ? "bg-slate-900 text-white" : "text-slate-500 hover:bg-pink-50"}` }, label)))),
+                React.createElement("div", { className: "max-h-[60vh] overflow-y-auto" },
+                    list.length === 0 && React.createElement("p", { className: "text-[12px] text-slate-500 p-3" }, "Nothing here yet."),
+                    list.map((x) => {
+                        const t = invoiceTotals(x);
+                        return (React.createElement("button", { key: x.id, onClick: () => {
+                                setSel(x.id);
+                                setConfirmDel(false);
+                            }, className: `ss-inv-row ${sel === x.id ? "is-on" : ""}` },
+                            React.createElement("span", { className: `ss-dot-status is-${x.status || "draft"}` }),
+                            React.createElement("span", { className: "min-w-0" },
+                                React.createElement("b", { className: "block truncate" }, x.model || "Unnamed model"),
+                                React.createElement("small", null,
+                                    x.number,
+                                    " \u00B7 ",
+                                    prettyDate(x.date))),
+                            React.createElement("span", { className: "ml-auto text-right" },
+                                React.createElement("b", { className: "tabular block" }, fmt(t.total)),
+                                React.createElement("small", null, INVOICE_STATUS[x.status] || "Draft"))));
+                    })))),
+        !inv ? (React.createElement("div", { className: "ss-card ss-in p-8 text-center text-slate-500 text-sm" },
+            React.createElement("p", { className: "font-display text-lg font-extrabold text-slate-900 mb-1" }, "No invoice selected"),
+            "Type a model's name on the left to create one. It will follow the same layout as your existing invoices.")) : (React.createElement("div", { key: inv.id, className: "ss-inv-edit" },
+            React.createElement("div", { className: "ss-card ss-pop p-5 space-y-4" },
+                React.createElement("div", { className: "flex items-center gap-2 flex-wrap" },
+                    React.createElement("p", { className: "ss-eyebrow" }, "Edit"),
+                    React.createElement("span", { className: `ss-chip is-${inv.status}` }, INVOICE_STATUS[inv.status] || "Draft"),
+                    React.createElement("div", { className: "ml-auto flex gap-1.5" },
+                        React.createElement("button", { onClick: () => onPdf(inv), className: "ss-btn ss-btn-primary ss-sheen py-1.5" },
+                            React.createElement(Icon, { name: "save", size: 14 }),
+                            "PDF"),
+                        inv.status === "draft" && (React.createElement("button", { onClick: () => onUpdate(inv.id, { status: "sent" }), className: "ss-btn ss-btn-ghost py-1.5" }, "Mark sent")),
+                        inv.status !== "paid" ? (React.createElement("button", { onClick: () => onUpdate(inv.id, { status: "paid", paidDate: todayStr(settings) }), className: "ss-btn ss-btn-dark py-1.5" }, "Mark paid")) : (React.createElement("button", { onClick: () => onUpdate(inv.id, { status: "sent", paidDate: "", paidMethod: "" }), className: "ss-btn ss-btn-ghost py-1.5" }, "Undo paid")))),
+                React.createElement("div", { className: "grid grid-cols-2 md:grid-cols-3 gap-3" },
+                    React.createElement(Field, { label: "Billed to (model)" },
+                        React.createElement("input", { list: "ss-model-names", className: inputCls, value: inv.model, onChange: (e) => onUpdate(inv.id, { model: e.target.value }) })),
+                    React.createElement(Field, { label: "Invoice number" },
+                        React.createElement("input", { className: inputCls, value: inv.number, onChange: (e) => onUpdate(inv.id, { number: e.target.value }) })),
+                    React.createElement(Field, { label: "Pay period" },
+                        React.createElement("input", { className: inputCls, value: inv.payPeriod || "", onChange: (e) => onUpdate(inv.id, { payPeriod: e.target.value }), placeholder: settings.payPeriod || "e.g. Oct 14 – Oct 27" })),
+                    React.createElement(Field, { label: "Invoice date" },
+                        React.createElement("input", { type: "date", className: inputCls, value: inv.date, onChange: (e) => onUpdate(inv.id, { date: e.target.value, due: addDays(e.target.value, num(settings.invoiceTermsDays) || 6) || inv.due }) })),
+                    React.createElement(Field, { label: "Payment due" },
+                        React.createElement("input", { type: "date", className: inputCls, value: inv.due, onChange: (e) => onUpdate(inv.id, { due: e.target.value }) })),
+                    React.createElement(Field, { label: "Tax ($)" },
+                        React.createElement("input", { type: "number", step: "0.01", className: `${inputCls} text-right`, value: inv.tax, onChange: (e) => onUpdate(inv.id, { tax: e.target.value }) }))),
+                React.createElement("div", null,
+                    React.createElement("div", { className: "flex items-center mb-1.5" },
+                        React.createElement("p", { className: "ss-eyebrow" }, "Lines"),
+                        React.createElement("button", { onClick: () => onUpdate(inv.id, { lines: [...inv.lines, newInvoiceLine("Fansly", inv.payPeriod || "", "", num(settings.invoiceRate) || 25)] }), className: "ml-auto text-[11.5px] font-bold text-pink-700 hover:text-pink-900" }, "+ Add line")),
+                    React.createElement("div", { className: "space-y-2" }, inv.lines.map((l) => (React.createElement("div", { key: l.id, className: "ss-line-row" },
+                        React.createElement("select", { className: inputCls, style: { flex: "0 0 112px", width: 112 }, value: l.platform, onChange: (e) => patchLine(l.id, { platform: e.target.value }) }, INVOICE_PLATFORMS.map((p) => (React.createElement("option", { key: p, value: p }, p)))),
+                        React.createElement("input", { className: inputCls, style: { flex: "1 1 170px", minWidth: 0 }, placeholder: "Period / description", value: l.period, onChange: (e) => patchLine(l.id, { period: e.target.value }) }),
+                        React.createElement("div", { className: "ss-line-num" },
+                            React.createElement("input", { type: "number", step: "1", min: "0", className: `${inputCls} text-right`, style: { width: 54 }, title: "Quantity", value: l.qty, onChange: (e) => patchLine(l.id, { qty: e.target.value }) }),
+                            React.createElement("div", { className: "relative" },
+                                React.createElement("input", { type: "number", step: "0.5", min: "0", max: "100", className: `${inputCls} text-right`, style: { width: 74, paddingRight: 22 }, title: "Rate %", value: l.rate, onChange: (e) => patchLine(l.id, { rate: e.target.value }) }),
+                                React.createElement("span", { className: "text-[11px] text-slate-400", style: { position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)" } }, "%")),
+                            React.createElement("div", { className: "relative" },
+                                React.createElement("span", { className: "text-[11px] text-slate-400", style: { position: "absolute", left: 8, top: "50%", transform: "translateY(-50%)" } }, "of $"),
+                                React.createElement("input", { type: "number", step: "0.01", min: "0", className: `${inputCls} text-right`, style: { width: 124, paddingLeft: 34 }, title: "Sales the rate applies to", value: l.base, onChange: (e) => patchLine(l.id, { base: e.target.value }) })),
+                            React.createElement("span", { className: "tabular font-bold text-right text-[13px]", style: { width: 84 } }, fmt(lineAmount(l))),
+                            React.createElement("button", { onClick: () => onUpdate(inv.id, { lines: inv.lines.filter((x) => x.id !== l.id) }), className: "text-pink-300 hover:text-red-600 text-lg leading-none px-1", title: "Remove line", disabled: inv.lines.length <= 1 }, "\u00D7")))))),
+                    React.createElement("p", { className: "text-[11px] text-slate-500 mt-1.5" }, "Platform \u00B7 period \u00B7 qty \u00B7 rate \u00B7 sales the rate applies to. Amount = qty \u00D7 rate \u00D7 sales.")),
+                React.createElement(Field, { label: "Note on the invoice (optional)" },
+                    React.createElement("textarea", { className: inputCls, rows: 2, value: inv.notes, onChange: (e) => onUpdate(inv.id, { notes: e.target.value }) })),
+                inv.status === "paid" && (React.createElement("div", { className: "grid grid-cols-2 gap-3" },
+                    React.createElement(Field, { label: "Paid on" },
+                        React.createElement("input", { type: "date", className: inputCls, value: inv.paidDate || "", onChange: (e) => onUpdate(inv.id, { paidDate: e.target.value }) })),
+                    React.createElement(Field, { label: "Paid via" },
+                        React.createElement("select", { className: inputCls, value: inv.paidMethod || "", onChange: (e) => onUpdate(inv.id, { paidMethod: e.target.value }) },
+                            React.createElement("option", { value: "" }, "\u2014"),
+                            PAY_METHODS.map((m) => (React.createElement("option", { key: m, value: m }, m))))))),
+                React.createElement("div", { className: "flex items-center gap-2 pt-1 border-t border-pink-100" },
+                    React.createElement("span", { className: "text-[13px] tabular" },
+                        "Subtotal ",
+                        React.createElement("b", null, fmt(T.subtotal)),
+                        " \u00B7 Tax ",
+                        React.createElement("b", null, fmt(T.tax)),
+                        " \u00B7 Total due ",
+                        React.createElement("b", { className: "font-display text-base" }, fmt(T.total))),
+                    React.createElement("div", { className: "ml-auto flex gap-1.5" },
+                        React.createElement("button", { onClick: () => { const id = onCreate(inv.model, null, inv); setSel(id); }, className: "ss-btn ss-btn-ghost py-1.5" }, "Duplicate"),
+                        confirmDel ? (React.createElement("button", { onClick: () => { onRemove(inv.id); setConfirmDel(false); }, className: "ss-btn py-1.5 bg-red-600 text-white" }, "Really delete")) : (React.createElement("button", { onClick: () => setConfirmDel(true), className: "ss-btn ss-btn-ghost py-1.5 text-red-600" }, "Delete"))))),
+            React.createElement("div", { className: "ss-card ss-pop ss-d1 p-5 sm:p-7 overflow-x-auto" },
+                React.createElement("p", { className: "ss-eyebrow mb-3" }, "Preview"),
+                React.createElement(InvoiceSheet, { inv: inv, settings: settings }))))));
 }
 // build one chatter's paystub as a jsPDF document (standalone app only)
 function makePdf(emp, settings, dateStr, prize) {
@@ -2355,12 +3013,16 @@ function buildModelReport(employees, settings) {
                 const row = (models[nm] = models[nm] || {
                     name: nm,
                     revenue: 0,
+                    of: 0,
+                    fansly: 0,
                     net: 0,
                     hours: 0,
                     shifts: 0,
                     chatters: {},
                 });
                 row.revenue += k.revenue * share;
+                row.of += (k.ofRevenue || 0) * share;
+                row.fansly += (k.fanslyRevenue || 0) * share;
                 row.net += k.netRevenue * share;
                 row.hours += k.hours * share;
                 row.shifts += share;
@@ -3089,7 +3751,7 @@ const TEAM_DEFS = [
 ];
 const SLOT_EMOJI = { "12AM–8AM": "🕛", "8AM–4PM": "🌞", "4PM–12AM": "🌙" };
 const SLOTS = ["12AM–8AM", "8AM–4PM", "4PM–12AM"];
-const PAY_METHODS = ["PayPal", "Wise", "Crypto", "Bank transfer", "Other"];
+const PAY_METHODS = ["Zelle", "PayPal", "Wise", "Cash App", "Venmo", "Bank transfer", "Crypto", "Other"];
 // Discord post template — {tokens} fill in from the week; empty tokens drop their line
 const DEFAULT_ANNOUNCEMENT = `@everyone 🏆✨ **WEEKLY LEADERBOARD IS IN!** ✨🏆
 *{period}*
@@ -3135,6 +3797,7 @@ function fillTemplate(tpl, vars) {
 }
 const SETTINGS_SECTIONS = [
     { id: "agency", label: "Agency" },
+    { id: "invoicing", label: "Invoices" },
     { id: "rates", label: "Pay rates" },
     { id: "goals", label: "Goals & targets" },
     { id: "roster", label: "Roster" },
@@ -3144,10 +3807,12 @@ const SETTINGS_SECTIONS = [
 ];
 const VIEWS = [
     { id: "payroll", label: "Payroll" },
+    { id: "sendout", label: "Send out", short: "Send" },
     { id: "insights", label: "Insights" },
     { id: "board", label: "Leaderboard", short: "Board" },
     { id: "history", label: "History", needsAny: ["weekBrowser", "monthRollup", "trends", "ytdTotals"] },
     { id: "pnl", label: "Agency P&L", short: "P&L", needsAny: ["managerCommission", "marginView"] },
+    { id: "invoices", label: "Invoices" },
     { id: "settings", label: "Settings" },
 ];
 const viewOn = (v, features) => (!v.needs || features[v.needs]) && (!v.needsAny || v.needsAny.some((k) => features[k]));
@@ -3435,6 +4100,8 @@ function Field({ label, children }) {
 // line icons for the sidebar and top bar (24px grid, stroke)
 const ICON_PATHS = {
     payroll: "M3 7h18v10H3zM12 9.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5zM6 12h.01M18 12h.01",
+    sendout: "M22 2L11 13M22 2l-7 20-4-9-9-4z",
+    invoices: "M6 2h9l5 5v15H6zM15 2v5h5M9 13h6M9 17h6",
     insights: "M4 20V10M10 20V4M16 20v-7M22 20H2",
     board: "M8 4h8v5a4 4 0 0 1-8 0zM8 6H5a3 3 0 0 0 3 4M16 6h3a3 3 0 0 1-3 4M12 13v3M8 20h8M9 16h6l1 4H8z",
     history: "M12 8v4l3 2M3.05 11a9 9 0 1 1 .5 4M3 16v-5h5",
@@ -3845,10 +4512,145 @@ function AppStyles() {
       }
       .ss-sheen:hover::after { opacity: 1; animation: ss-sheen .75s var(--ease-io); }
 
+      /* ===========================================================
+         5.1 — glass skin. Same layout, frosted surfaces, livelier motion.
+         =========================================================== */
+      :root { --glass: rgba(255,255,255,.62); --glass-2: rgba(255,255,255,.78); --blur: 18px; --edge: rgba(255,255,255,.85); }
+      body {
+        background-image:
+          radial-gradient(1100px 620px at 12% -8%, rgba(236,42,134,.10), transparent 60%),
+          radial-gradient(900px 520px at 92% 4%, rgba(239,200,56,.14), transparent 62%),
+          radial-gradient(900px 600px at 55% 110%, rgba(30,158,115,.08), transparent 60%);
+      }
+      .ss-orbs { position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; }
+      .ss-orb { position: absolute; border-radius: 50%; filter: blur(14px); will-change: transform; }
+      .ss-orb-1 { left: 14%; top: -220px; width: 640px; height: 640px; background: radial-gradient(circle, rgba(236,42,134,.26), rgba(236,42,134,0) 70%); animation: ss-drift-a 22s ease-in-out infinite; }
+      .ss-orb-2 { right: -180px; top: 24%; width: 560px; height: 560px; background: radial-gradient(circle, rgba(239,200,56,.28), rgba(239,200,56,0) 70%); animation: ss-drift-b 26s ease-in-out infinite; }
+      .ss-orb-3 { left: 38%; bottom: -260px; width: 680px; height: 680px; background: radial-gradient(circle, rgba(30,158,115,.14), rgba(30,158,115,0) 70%); animation: ss-drift-c 30s ease-in-out infinite; }
+      @keyframes ss-drift-a { 50% { transform: translate(70px,-40px) scale(1.08); } }
+      @keyframes ss-drift-b { 50% { transform: translate(-60px,60px) scale(1.12); } }
+      @keyframes ss-drift-c { 50% { transform: translate(40px,-70px); } }
+      .ss-app, .ss-main { position: relative; z-index: 1; }
+      .ss-side {
+        background: linear-gradient(180deg, rgba(31,18,41,.88) 0%, rgba(21,10,28,.9) 100%);
+        backdrop-filter: blur(var(--blur)) saturate(1.3); -webkit-backdrop-filter: blur(var(--blur)) saturate(1.3);
+        border-right: 1px solid rgba(255,255,255,.1);
+      }
+      .ss-side-item { transition: background-color var(--t-s) var(--ease), color var(--t-s) var(--ease), transform var(--t-s) var(--ease); }
+      .ss-side-item:not(:disabled):hover { transform: translateX(3px); }
+      .ss-side-item.is-on {
+        background: linear-gradient(135deg, rgba(236,42,134,.92), rgba(236,42,134,.55));
+        border: 1px solid rgba(255,255,255,.2);
+        box-shadow: 0 10px 24px -12px rgba(236,42,134,.9), inset 0 1px 0 rgba(255,255,255,.22);
+      }
+      .ss-side-item.is-on::before { display: none; }
+      .ss-top {
+        background: var(--glass); border-bottom: 1px solid var(--edge);
+        backdrop-filter: blur(var(--blur)) saturate(1.4); -webkit-backdrop-filter: blur(var(--blur)) saturate(1.4);
+        box-shadow: inset 0 1px 0 rgba(255,255,255,.9);
+      }
+      .ss-top[data-stuck="true"] { border-bottom-color: rgba(255,255,255,.9); box-shadow: 0 12px 36px -22px rgba(28,17,38,.35), inset 0 1px 0 rgba(255,255,255,.9); }
+      .ss-card, .ss-kpi {
+        background: var(--glass); border: 1px solid var(--edge);
+        backdrop-filter: blur(var(--blur)); -webkit-backdrop-filter: blur(var(--blur));
+        box-shadow: 0 16px 40px -28px rgba(28,17,38,.4), inset 0 1px 0 rgba(255,255,255,.9);
+      }
+      .ss-kpi { transition: transform var(--t-m) var(--ease), box-shadow var(--t-m) var(--ease), border-color var(--t-m) var(--ease); }
+      .ss-kpi:hover { transform: translateY(-3px); border-color: #fff; box-shadow: 0 18px 40px -18px rgba(28,17,38,.28), inset 0 1px 0 rgba(255,255,255,.95); }
+      .ss-kpi.is-pink { background: linear-gradient(160deg, rgba(28,17,38,.92), rgba(71,58,80,.86)); border-color: rgba(255,255,255,.18); box-shadow: 0 18px 44px -24px rgba(28,17,38,.7), inset 0 1px 0 rgba(255,255,255,.18); position: relative; overflow: hidden; }
+      .ss-kpi.is-pink::after { content: ""; position: absolute; right: -40px; top: -40px; width: 140px; height: 140px; border-radius: 50%; background: radial-gradient(circle, rgba(239,200,56,.5), rgba(239,200,56,0) 70%); animation: ss-glow 3s ease-in-out infinite; }
+      @keyframes ss-glow { 0%,100% { opacity: .55 } 50% { opacity: 1 } }
+      .ss-card-lift:hover, .ss-lift:hover { transform: translateY(-3px); box-shadow: 0 18px 40px -18px rgba(28,17,38,.28), inset 0 1px 0 rgba(255,255,255,.9); }
+      .ss-table th { background: rgba(255,255,255,.55); backdrop-filter: blur(8px); }
+      .ss-table tr.row:hover td { background: rgba(255,255,255,.55); }
+      .ss-table tr.row.is-on td { background: rgba(236,42,134,.09); }
+      .ss-table tr.row { transition: background-color var(--t-xs) linear, transform var(--t-s) var(--ease); }
+      .ss-btn { transition: transform var(--t-s) var(--ease), box-shadow var(--t-s) var(--ease), background-color var(--t-s) var(--ease), border-color var(--t-s) var(--ease); }
+      .ss-btn-primary { background: linear-gradient(135deg, #F04393, #C2156B); border: 1px solid rgba(255,255,255,.35); box-shadow: 0 10px 24px -12px rgba(236,42,134,.8); }
+      .ss-btn-primary:not(:disabled):hover { background: linear-gradient(135deg, #F04393, #C2156B); transform: translateY(-2px); box-shadow: 0 14px 28px -12px rgba(236,42,134,.75); }
+      .ss-btn-ghost { background: rgba(255,255,255,.65); border-color: rgba(28,17,38,.12); }
+      .ss-btn-ghost:not(:disabled):hover { background: rgba(255,255,255,.95); border-color: var(--pink); }
+      .ss-sheen::after { opacity: 1; animation: ss-sheen 3.2s var(--ease-io) 1.2s infinite; background: linear-gradient(100deg, transparent 38%, rgba(255,255,255,.42) 50%, transparent 62%); background-size: 220% 100%; }
+      input, select, textarea { background-color: rgba(255,255,255,.7) !important; }
+      .ss-in { animation-duration: .7s; }
+      @keyframes ss-fade-up { from { opacity:0; transform: translateY(14px) scale(.985);} to { opacity:1; transform:none; } }
+
+      /* ---------- send-out decks ---------- */
+      .ss-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; font-size: 11.5px; font-weight: 700; background: rgba(28,17,38,.07); color: var(--ink-2); }
+      .ss-chip.is-mint, .ss-chip.is-paid { background: rgba(30,158,115,.14); color: #13674C; }
+      .ss-chip.is-sent { background: rgba(239,200,56,.28); color: #6B5010; }
+      .ss-chip.is-draft { background: rgba(28,17,38,.07); color: var(--ink-2); }
+      .ss-progress { height: 8px; border-radius: 999px; background: rgba(28,17,38,.08); overflow: hidden; }
+      .ss-progress-bar { height: 100%; border-radius: 999px; background: linear-gradient(90deg, #EC2A86, #EFC838); transition: width var(--t-l) var(--ease); }
+      .ss-progress-bar.is-ink { background: linear-gradient(90deg, #1C1126, #7D6D86); }
+      .ss-deck { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+      .ss-deck-card {
+        position: relative; display: flex; flex-direction: column; align-items: flex-start; text-align: left; gap: 2px;
+        padding: 14px 14px 12px; border-radius: 18px; min-height: 148px;
+        background: var(--glass-2); border: 1px solid var(--edge);
+        backdrop-filter: blur(var(--blur)); -webkit-backdrop-filter: blur(var(--blur));
+        box-shadow: 0 14px 34px -26px rgba(28,17,38,.45), inset 0 1px 0 rgba(255,255,255,.95);
+        transition: transform .4s var(--ease), box-shadow .4s var(--ease), border-color .4s var(--ease), opacity .4s var(--ease), background-color .4s var(--ease);
+        transform-style: preserve-3d;
+      }
+      .ss-deck-card:not(:disabled):hover { transform: translateY(-7px) rotate(-1deg) scale(1.025); box-shadow: 0 26px 48px -22px rgba(236,42,134,.45), inset 0 1px 0 #fff; border-color: #fff; }
+      .ss-deck-card:not(:disabled):active { transform: translateY(-2px) scale(.99); }
+      .ss-deck-card.is-on { border-color: var(--pink); box-shadow: 0 0 0 3px rgba(236,42,134,.18), 0 26px 48px -22px rgba(236,42,134,.45); background: rgba(255,255,255,.92); }
+      .ss-deck-card.is-paid { opacity: .72; }
+      .ss-deck-card.is-paid .ss-deck-amt { color: #13674C; }
+      .ss-deck-card.is-paid.is-on, .ss-deck-card.is-paid:hover { opacity: 1; }
+      .ss-deck-top { display: flex; align-items: center; width: 100%; margin-bottom: 8px; }
+      .ss-deck-status { margin-left: auto; width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center; justify-content: center; }
+      .is-paid .ss-deck-status { background: var(--mint); color: #fff; animation: ss-tick var(--t-m) var(--ease); box-shadow: 0 6px 14px -6px rgba(30,158,115,.8); }
+      .ss-deck-name { font-weight: 800; font-size: 13.5px; letter-spacing: -.01em; line-height: 1.15; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .ss-deck-sub { font-size: 11px; color: var(--ink-3); font-weight: 600; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .ss-deck-amt { margin-top: auto; padding-top: 10px; font-family: 'Outfit', sans-serif; font-size: 21px; font-weight: 800; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+      .ss-deck-foot { font-size: 10.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-4); }
+      .is-paid .ss-deck-foot { color: #13674C; }
+      .ss-avatar { width: 34px; height: 34px; border-radius: 11px; display: inline-flex; align-items: center; justify-content: center; font-family: 'Outfit', sans-serif; font-weight: 800; font-size: 12.5px; background: linear-gradient(135deg, rgba(236,42,134,.18), rgba(239,200,56,.3)); color: var(--pink-deep); flex: none; }
+      .ss-avatar.is-ink { background: linear-gradient(135deg, rgba(28,17,38,.12), rgba(125,109,134,.25)); color: var(--ink); }
+      .ss-avatar.is-lg { width: 46px; height: 46px; border-radius: 14px; font-size: 16px; }
+      .ss-focus { display: grid; grid-template-columns: minmax(0, 1fr) 260px; gap: 16px; padding: 18px; border-radius: 22px; background: rgba(255,255,255,.55); border: 1px solid var(--edge); box-shadow: inset 0 1px 0 #fff; }
+      .ss-focus-side { display: flex; flex-direction: column; gap: 10px; }
+      .ss-focus-sheet { min-width: 0; }
+      .ss-done { display: flex; align-items: center; gap: 14px; padding: 14px 16px; border-radius: 18px; background: rgba(30,158,115,.12); border: 1px solid rgba(30,158,115,.3); }
+      .ss-done-ring { width: 44px; height: 44px; border-radius: 50%; background: var(--mint); color: #fff; display: flex; align-items: center; justify-content: center; flex: none; animation: ss-tick .5s var(--ease); box-shadow: 0 0 0 8px rgba(30,158,115,.14); }
+      @media (max-width: 767px) { .ss-focus { grid-template-columns: 1fr; } .ss-deck { grid-template-columns: repeat(auto-fill, minmax(136px, 1fr)); } }
+
+      /* ---------- invoice sheet ---------- */
+      .ss-sheet { background: #fff; border-radius: 14px; padding: 22px 24px; color: var(--ink); border: 1px solid rgba(28,17,38,.08); box-shadow: 0 10px 30px -24px rgba(28,17,38,.5); position: relative; min-width: 300px; }
+      .ss-sheet.is-compact { padding: 16px 18px; }
+      .ss-sheet.is-stub { background: rgba(255,255,255,.85); }
+      .ss-sheet-meta { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border: 1px solid rgba(28,17,38,.14); border-radius: 8px; overflow: hidden; }
+      .ss-sheet-meta > div { padding: 8px 10px; border-right: 1px solid rgba(28,17,38,.14); display: flex; flex-direction: column; gap: 2px; }
+      .ss-sheet-meta > div:last-child { border-right: 0; }
+      .ss-sheet-meta span { font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-4); }
+      .ss-sheet-meta b { font-size: 12.5px; }
+      .ss-sheet-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+      .ss-sheet-table th { text-align: left; font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-4); padding: 7px 8px; background: var(--pink-wash); border-bottom: 1px solid rgba(28,17,38,.14); }
+      .ss-sheet-table td { padding: 8px; border-bottom: 1px solid rgba(28,17,38,.08); vertical-align: top; }
+      .ss-sheet-table .r { text-align: right; }
+      .ss-sheet-stamp { position: absolute; right: 22px; top: 60px; transform: rotate(-12deg); font-family: 'Outfit', sans-serif; font-weight: 900; font-size: 28px; letter-spacing: .1em; color: rgba(30,158,115,.55); border: 3px solid rgba(30,158,115,.55); border-radius: 8px; padding: 2px 10px; animation: ss-pop var(--t-m) var(--ease) backwards; }
+      .ss-inv-row { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; padding: 9px 10px; border-radius: 10px; font-size: 12.5px; transition: background-color var(--t-xs) var(--ease), transform var(--t-xs) var(--ease); }
+      .ss-inv-row small { display: block; font-size: 10.5px; color: var(--ink-3); font-weight: 600; }
+      .ss-inv-row:not(:disabled):hover { background: rgba(255,255,255,.7); transform: none; }
+      .ss-inv-row.is-on { background: rgba(236,42,134,.1); }
+      .ss-dot-status { width: 9px; height: 9px; border-radius: 50%; flex: none; background: var(--ink-4); }
+      .ss-dot-status.is-sent { background: var(--halo); }
+      .ss-dot-status.is-paid { background: var(--mint); }
+      .ss-inv-layout { display: grid; gap: 20px; align-items: start; }
+      @media (min-width: 1024px) { .ss-inv-layout { grid-template-columns: 300px minmax(0, 1fr); } }
+      .ss-inv-edit { display: grid; gap: 20px; align-items: start; }
+      @media (min-width: 1400px) { .ss-inv-edit { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } }
+      .ss-line-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 6px; border-radius: 12px; background: rgba(255,255,255,.45); border: 1px solid rgba(255,255,255,.8); }
+      .ss-line-num { display: flex; gap: 6px; align-items: center; flex: 0 0 auto; margin-left: auto; }
+      @media (prefers-reduced-motion: reduce) { .ss-orb, .ss-sheen::after, .ss-kpi.is-pink::after { animation: none !important; } }
+
       /* ---------- печать / print ---------- */
       @media print {
         body { background: #fff !important; }
         body * { visibility: hidden; }
+        .ss-orbs { display: none !important; }
         #paystub, #paystub * { visibility: visible; }
         #paystub { position: absolute; left: 0; top: 0; width: 100%; box-shadow: none !important; border: 0 !important; }
         *, *::before, *::after {
@@ -5685,6 +6487,58 @@ function PaystubApp({ sb = null, me = null, onSignOut = null } = {}) {
         ...s,
         invoices: (s.invoices || []).filter((r) => r.id !== id),
     }));
+    // ---- 5.1: model invoices + send-out ----
+    const modelInvoices = settings.modelInvoices || [];
+    const invModelRows = (modelReport && modelReport.rows) || [];
+    const modelNames = useMemo(() => {
+        const s = new Set();
+        invModelRows.forEach((m) => m.name !== "Unattributed" && s.add(m.name));
+        Object.keys(settings.modelGoalAmounts || {}).forEach((m) => s.add(m));
+        modelInvoices.forEach((i) => i.model && s.add(i.model));
+        return [...s].sort();
+    }, [invModelRows, settings.modelGoalAmounts, modelInvoices]);
+    const createInvoice = (model, prefill, copyOf = null) => {
+        const inv = copyOf
+            ? { ...copyOf, id: uid(), number: invoiceNumber(settings), date: todayStr(settings), due: addDays(todayStr(settings), num(settings.invoiceTermsDays) || 6), status: "draft", paidDate: "", paidMethod: "", lines: copyOf.lines.map((l) => ({ ...l, id: uid() })) }
+            : newInvoice(settings, model, prefill);
+        setSettings((s) => ({
+            ...s,
+            modelInvoices: [inv, ...(s.modelInvoices || [])],
+            invoiceNext: (Math.max(1, Math.round(num(s.invoiceNext)) || 1)) + 1,
+        }));
+        return inv.id;
+    };
+    const updateModelInvoice = (id, patch) => setSettings((s) => ({ ...s, modelInvoices: (s.modelInvoices || []).map((i) => (i.id === id ? { ...i, ...patch } : i)) }));
+    const removeModelInvoice = (id) => setSettings((s) => ({ ...s, modelInvoices: (s.modelInvoices || []).filter((i) => i.id !== id) }));
+    const invoicePdf = (inv) => {
+        if (!(window.jspdf && window.jspdf.jsPDF))
+            return setSaveMsg("PDFs need the downloaded or hosted app.");
+        saveFile(invoiceFileName(inv), makeInvoicePdf(inv, settings).output("blob"))
+            .then((ok) => ok && setSaveMsg(`${inv.number} for ${inv.model || "model"} saved.`))
+            .catch((err) => setSaveMsg("Couldn't save: " + (err && err.message ? err.message : err)));
+    };
+    const markEmployeePaid = (id, method) => setEmployees((list) => list.map((e) => (e.id === id ? { ...e, paid: true, paidMethod: method || e.paidMethod || "", paidDate: todayStr(settings) } : e)));
+    const unpayEmployee = (id) => setEmployees((list) => list.map((e) => (e.id === id ? { ...e, paid: false, paidDate: "", paidMethod: "" } : e)));
+    const stubPdfFor = (e) => {
+        if (!(window.jspdf && window.jspdf.jsPDF))
+            return setSaveMsg("PDFs need the downloaded or hosted app.");
+        const doc = makePdf(e, settings, todayStr(settings), prizes[e.id]);
+        saveFile(`${(e.name || "Unnamed").replace(/[\\/:*?"<>|]/g, "")}_${todayStr(settings)}.pdf`, doc.output("blob"))
+            .then((ok) => ok && setSaveMsg(`Paystub for ${e.name} saved.`))
+            .catch((err) => setSaveMsg("Couldn't save: " + (err && err.message ? err.message : err)));
+    };
+    const stubPngFor = (e) => {
+        const c = calcEmployee(e, settings, prizes[e.id]);
+        const ins = buildInsights(e, employees, settings);
+        const rank = leaderboard.findIndex((m) => m.e.id === e.id) + 1;
+        makeChatterCardPng(e, c, ins, rank, leaderboard.length, settings, (blob) => {
+            if (!blob)
+                return setCopyMsg("Couldn't render the card.");
+            saveFile(`SpicySweet-${(e.name || "chatter").replace(/\s+/g, "")}_${todayStr(settings)}.png`, blob)
+                .then((ok) => ok && setCopyMsg(`Stats card for ${e.name} saved.`))
+                .catch((err) => setCopyMsg("Couldn't save: " + (err && err.message ? err.message : err)));
+        });
+    };
     const addExpense = () => setSettings((s) => ({
         ...s,
         otherExpenses: [...(s.otherExpenses || []), { id: uid(), label: "", amount: "" }],
@@ -5699,13 +6553,17 @@ function PaystubApp({ sb = null, me = null, onSignOut = null } = {}) {
     }));
     const managerCalc = useMemo(() => {
         const rows = settings.invoices || [];
-        const invoiceTotal = rows.reduce((a, r) => a + (r.tbd ? 0 : num(r.amount)), 0);
+        const pageInv = (settings.modelInvoices || []).filter((i) => !settings.payPeriod || !i.payPeriod || i.payPeriod === settings.payPeriod);
+        const pageTotal = pageInv.reduce((a, i) => a + invoiceTotals(i).total, 0);
+        const invoiceTotal = rows.reduce((a, r) => a + (r.tbd ? 0 : num(r.amount)), 0) + pageTotal;
         const tbd = rows.filter((r) => r.tbd).length;
         const expenses = (settings.otherExpenses || []).reduce((a, r) => a + num(r.amount), 0);
         const profit = invoiceTotal - payrollTotal - expenses;
         const commission = features.managerCommission ? profit * (num(settings.managerRate) / 100) : 0;
         return {
             invoiceTotal,
+            pageInvoices: pageInv.length,
+            pageTotal,
             tbd,
             payroll: payrollTotal,
             expenses,
@@ -5845,20 +6703,24 @@ function PaystubApp({ sb = null, me = null, onSignOut = null } = {}) {
     const settingsSections = SETTINGS_SECTIONS.filter((x) => canEditRules || ["goals", "roster", "data"].includes(x.id)).flatMap((x) => x.id === "data" && sb && me && me.role === "owner" ? [{ id: "people", label: "People" }, x] : [x]);
     const pageTitle = view === "payroll"
         ? ["Payroll", settings.payPeriod ? `Pay period ${settings.payPeriod}` : "Set the pay period in the first tile"]
-        : view === "insights"
-            ? [
-                (insightsTabs.find(([k]) => k === insightsTabOn) || ["", "Insights"])[1] === "Chatter"
-                    ? "Chatter insights"
-                    : (insightsTabs.find(([k]) => k === insightsTabOn) || ["", "Insights"])[1],
-                "Coaching reads and reports from this week's shifts",
-            ]
-            : view === "board"
-                ? ["Leaderboard", "Ranked by sales this week"]
-                : view === "history"
-                    ? [(historyTabs.find(([k]) => k === historyTabOn) || ["", "History"])[1], "Saved weeks and how they add up"]
-                    : view === "pnl"
-                        ? ["Agency P&L", settings.payPeriod || "This week"]
-                        : ["Settings", "Pay rules, roster, goals and what the app keeps"];
+        : view === "sendout"
+            ? ["Send out", "Paystubs and invoices, one card at a time"]
+            : view === "invoices"
+                ? ["Model invoices", `Next up: ${invoiceNumber(settings)}`]
+                : view === "insights"
+                    ? [
+                        (insightsTabs.find(([k]) => k === insightsTabOn) || ["", "Insights"])[1] === "Chatter"
+                            ? "Chatter insights"
+                            : (insightsTabs.find(([k]) => k === insightsTabOn) || ["", "Insights"])[1],
+                        "Coaching reads and reports from this week's shifts",
+                    ]
+                    : view === "board"
+                        ? ["Leaderboard", "Ranked by sales this week"]
+                        : view === "history"
+                            ? [(historyTabs.find(([k]) => k === historyTabOn) || ["", "History"])[1], "Saved weeks and how they add up"]
+                            : view === "pnl"
+                                ? ["Agency P&L", settings.payPeriod || "This week"]
+                                : ["Settings", "Pay rules, roster, goals and what the app keeps"];
     // the bar gains a hairline once the page moves under it
     useEffect(() => {
         const onScroll = () => setStuck(window.scrollY > 6);
@@ -6041,6 +6903,10 @@ function PaystubApp({ sb = null, me = null, onSignOut = null } = {}) {
     }
     return (React.createElement("div", { className: "ss-app bg-rose-50 text-slate-900" },
         React.createElement(AppStyles, null),
+        React.createElement("div", { className: "ss-orbs print:hidden", "aria-hidden": "true" },
+            React.createElement("div", { className: "ss-orb ss-orb-1" }),
+            React.createElement("div", { className: "ss-orb ss-orb-2" }),
+            React.createElement("div", { className: "ss-orb ss-orb-3" })),
         React.createElement("aside", { className: `ss-side print:hidden ${sideMini ? "is-mini" : ""}` },
             React.createElement("button", { onClick: () => setShowLanding(true), className: "ss-side-brand", title: "Back to the start screen" },
                 React.createElement("img", { src: LOGO, alt: "Spicy Sweet" }),
@@ -6287,7 +7153,7 @@ function PaystubApp({ sb = null, me = null, onSignOut = null } = {}) {
                                     React.createElement("span", { className: "font-semibold" }, c.who),
                                     " \u2014 ",
                                     c.text)))))))))),
-                    view === "settings" ? (React.createElement("div", { className: "max-w-7xl mx-auto lg:grid lg:grid-cols-[190px_minmax(0,1fr)] lg:gap-6 items-start" },
+                    view === "sendout" ? (React.createElement(SendOutView, { employees: employees, settings: settings, prizes: prizes, invoices: modelInvoices, onMarkPaid: markEmployeePaid, onUnpay: unpayEmployee, onMarkInvoice: updateModelInvoice, onStubPdf: stubPdfFor, onStubPng: stubPngFor, onInvoicePdf: invoicePdf, onAllPdfs: saveAllPdfs, canPng: true })) : view === "invoices" ? (React.createElement(InvoicesView, { invoices: modelInvoices, settings: settings, modelNames: modelNames, modelReport: invModelRows, onCreate: createInvoice, onUpdate: updateModelInvoice, onRemove: removeModelInvoice, onPdf: invoicePdf, canEditRules: canEditRules })) : view === "settings" ? (React.createElement("div", { className: "max-w-7xl mx-auto lg:grid lg:grid-cols-[190px_minmax(0,1fr)] lg:gap-6 items-start" },
                         React.createElement("aside", { className: "lg:sticky lg:top-24 mb-5 lg:mb-0 ss-card p-2" },
                             React.createElement("p", { className: "ss-eyebrow px-3 pt-2 pb-1.5" }, "On this page"),
                             React.createElement("nav", { className: "flex lg:flex-col flex-wrap gap-0.5" }, settingsSections.map((s) => (React.createElement("a", { key: s.id, href: "#set-" + s.id, onClick: (e) => {
@@ -6316,6 +7182,41 @@ function PaystubApp({ sb = null, me = null, onSignOut = null } = {}) {
                                                     ...s,
                                                     fanslyCut: num(e.target.value),
                                                 })) }))))),
+                                canEditRules && (React.createElement("section", { id: "set-invoicing", className: "ss-card p-5 scroll-mt-24" },
+                                    React.createElement("h3", { className: "font-display text-base font-extrabold text-slate-900 mb-0.5" }, "Invoices"),
+                                    React.createElement("p", { className: "text-xs text-slate-500 mb-4" }, "What prints at the top and bottom of every model invoice, plus numbering and your default rate."),
+                                    React.createElement("div", { className: "grid grid-cols-2 md:grid-cols-3 gap-3" }, [
+                                        ["legalName", "Legal name", "Spicy Sweet LLC"],
+                                        ["address1", "Address line 1", "540 Via Amalfi"],
+                                        ["address2", "Address line 2", ""],
+                                        ["cityStateZip", "City, state ZIP", "Irving TX 75039"],
+                                        ["email", "Email", "billing@…"],
+                                        ["phone", "Phone", "(817) 555-0100"],
+                                    ].map(([k, label, ph]) => (React.createElement(Field, { key: k, label: label },
+                                        React.createElement("input", { className: inputCls, placeholder: ph, value: agencyOf(settings)[k], onChange: (e) => setSettings((s) => ({ ...s, agency: { ...agencyOf(s), [k]: e.target.value } })) }))))),
+                                    React.createElement("p", { className: "ss-eyebrow mt-5 mb-2" }, "Payment instructions"),
+                                    React.createElement("div", { className: "grid grid-cols-2 md:grid-cols-4 gap-3" },
+                                        [
+                                            ["bankName", "Bank name", "JPMorgan Chase Bank"],
+                                            ["wireRouting", "Routing (wire)", ""],
+                                            ["achRouting", "Routing (ACH)", ""],
+                                            ["account", "Account number", ""],
+                                        ].map(([k, label, ph]) => (React.createElement(Field, { key: k, label: label },
+                                            React.createElement("input", { className: inputCls, placeholder: ph, value: agencyOf(settings)[k], onChange: (e) => setSettings((s) => ({ ...s, agency: { ...agencyOf(s), [k]: e.target.value } })) })))),
+                                        React.createElement("div", { className: "col-span-2 md:col-span-4" },
+                                            React.createElement(Field, { label: "Extra payment note (optional)" },
+                                                React.createElement("input", { className: inputCls, placeholder: "e.g. Zelle: spicysweetbusiness@gmail.com", value: agencyOf(settings).payNote, onChange: (e) => setSettings((s) => ({ ...s, agency: { ...agencyOf(s), payNote: e.target.value } })) })))),
+                                    React.createElement("p", { className: "ss-eyebrow mt-5 mb-2" }, "Numbering & defaults"),
+                                    React.createElement("div", { className: "grid grid-cols-3 gap-3 max-w-xl" },
+                                        React.createElement(Field, { label: "Next invoice number" },
+                                            React.createElement("div", { className: "relative" },
+                                                React.createElement("span", { className: "text-[12px] text-slate-400", style: { position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)" } }, "INV-"),
+                                                React.createElement("input", { type: "number", min: "1", step: "1", className: inputCls, style: { paddingLeft: 44 }, value: settings.invoiceNext, onChange: (e) => setSettings((s) => ({ ...s, invoiceNext: e.target.value })) }))),
+                                        React.createElement(Field, { label: "Default rate (%)" },
+                                            React.createElement("input", { type: "number", min: "0", max: "100", step: "0.5", className: inputCls, value: settings.invoiceRate, onChange: (e) => setSettings((s) => ({ ...s, invoiceRate: e.target.value })) })),
+                                        React.createElement(Field, { label: "Due in (days)" },
+                                            React.createElement("input", { type: "number", min: "0", step: "1", className: inputCls, value: settings.invoiceTermsDays, onChange: (e) => setSettings((s) => ({ ...s, invoiceTermsDays: e.target.value })) }))),
+                                    React.createElement("p", { className: "text-[11px] text-slate-500 mt-3" }, "Bank details are stored with your settings and sync to your other devices through your private backend. Managers never see this section."))),
                                 canEditRules && (React.createElement("section", { id: "set-rates", className: "ss-card p-5 scroll-mt-24" },
                                     React.createElement("h3", { className: "font-display text-base font-extrabold text-slate-900 mb-0.5" }, "Pay rates & targets"),
                                     React.createElement("p", { className: "text-xs text-slate-500 mb-3" },
@@ -6571,6 +7472,7 @@ function PaystubApp({ sb = null, me = null, onSignOut = null } = {}) {
                                         React.createElement("span", null,
                                             React.createElement("span", { className: "block text-sm font-semibold text-slate-800" }, label),
                                             React.createElement("span", { className: "block text-[11px] text-slate-500 leading-snug" }, blurb)))))))))))) : (React.createElement(React.Fragment, null,
+                        view === "payroll" && (React.createElement("datalist", { id: "ss-model-names" }, modelNames.map((m) => (React.createElement("option", { key: m, value: m }))))),
                         view === "payroll" && (React.createElement("div", { className: "ss-card ss-in mb-5 overflow-hidden print:hidden" },
                             React.createElement("div", { className: "flex flex-wrap items-center gap-2 px-4 py-3 border-b border-pink-100" },
                                 React.createElement("p", { className: "ss-eyebrow mr-2" }, "Chatters"),
@@ -6863,6 +7765,9 @@ function PaystubApp({ sb = null, me = null, onSignOut = null } = {}) {
                                                         React.createElement("td", { className: "py-2 pr-2" },
                                                             React.createElement("input", { type: "date", className: inputCls + " min-w-0 px-2", value: s.date, onChange: (e) => updateShift(active.id, s.id, {
                                                                     date: e.target.value,
+                                                                }) }),
+                                                            React.createElement("input", { list: "ss-model-names", className: "mt-1 w-full min-w-0 rounded-md border border-pink-100 bg-white/70 px-2 py-0.5 text-[11.5px] text-slate-700 placeholder:text-slate-300", placeholder: "Model(s)", title: "Which model(s) this shift chatted for \u2014 comma-separated. Feeds the Models report and invoice prefills.", value: s.creators || "", onChange: (e) => updateShift(active.id, s.id, {
+                                                                    creators: e.target.value,
                                                                 }) })),
                                                         React.createElement("td", { className: "py-2 pr-2" },
                                                             React.createElement("input", { type: "number", step: "0.25", min: "0", className: inputCls + " min-w-0 px-2", value: s.hours, placeholder: "8", onChange: (e) => updateShift(active.id, s.id, {
@@ -7502,6 +8407,13 @@ function PaystubApp({ sb = null, me = null, onSignOut = null } = {}) {
                                         React.createElement("div", { className: "space-y-3" },
                                             React.createElement("div", null,
                                                 React.createElement("p", { className: "ss-eyebrow mb-1.5" }, "Model invoices collected"),
+                                                managerCalc.pageInvoices > 0 && (React.createElement("button", { onClick: () => setView("invoices"), className: "ss-row w-full text-left flex justify-between items-center rounded-lg bg-white/70 border border-pink-100 px-3 py-2 mb-2 text-[12.5px]" },
+                                                    React.createElement("span", { className: "text-slate-600" },
+                                                        managerCalc.pageInvoices,
+                                                        " invoice",
+                                                        managerCalc.pageInvoices === 1 ? "" : "s",
+                                                        " from the Invoices page"),
+                                                    React.createElement("span", { className: "font-bold tabular" }, fmt(managerCalc.pageTotal)))),
                                                 (settings.invoices || []).map((row) => (React.createElement("div", { key: row.id, className: "flex gap-1.5 items-center mb-1.5" },
                                                     React.createElement("input", { className: inputCls, placeholder: "Model", value: row.model, onChange: (e) => updateInvoice(row.id, { model: e.target.value }) }),
                                                     React.createElement("input", { type: "number", step: "0.01", className: `${inputCls} text-right`, style: { width: "8rem" }, placeholder: "0.00", value: row.amount, onChange: (e) => updateInvoice(row.id, { amount: e.target.value }) }),
