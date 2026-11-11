@@ -18,7 +18,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 
-<script>window.SPICY_VERSION = "5.3.6";</script>
+<script>window.SPICY_VERSION = "5.3.7";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.1/dist/umd/supabase.js"></script>
 <script>window.SPICY_BACKEND = {"url": "https://ctsbigebqkyggntjevqq.supabase.co", "key": "sb_publishable_2jC3tz_LgP3P-439fIjUMA_P36MN8Q0"};</script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -1719,7 +1719,7 @@ function StubSummary({ emp, calc, settings }) {
                 React.createElement("p", { className: "font-display text-lg font-extrabold leading-tight truncate" }, emp.name || "—"),
                 React.createElement("p", { className: "text-[12px] text-slate-500" }, [emp.team, emp.headChatter ? "Head chatter" : "", settings.payPeriod].filter(Boolean).join(" · "))),
             React.createElement("div", { className: "ml-auto text-right" },
-                React.createElement("p", { className: "ss-eyebrow" }, "Take-home"),
+                React.createElement("p", { className: "ss-eyebrow ss-stub-eyebrow" }, "Take-home"),
                 React.createElement("p", { className: "font-display text-2xl font-extrabold tabular" }, fmt(c.gross)))),
         React.createElement("div", { className: "mt-4 divide-y divide-pink-100 text-[13px]" }, rows.map(([k, v], i) => (React.createElement("div", { key: i, className: "flex justify-between py-1.5" },
             React.createElement("span", { className: "text-slate-600" }, k),
@@ -5742,6 +5742,41 @@ function AppStyles() {
       html[data-mode="dark"] .ss-toast { background: #F6EEF4 !important; color: #1C1126 !important; }
       html[data-mode="dark"] .ss-theme-card { background: rgba(255,255,255,.06); }
       html[data-mode="dark"] .ss-cursor { background: rgba(255,255,255,.14); border-color: rgba(255,255,255,.5); }
+      /* phones: each shift becomes a labelled card instead of a squeezed table row */
+      @media (max-width: 639px) {
+        .ss-shifts, .ss-shifts tbody { display: block; }
+        .ss-shifts colgroup, .ss-shifts thead { display: none; }
+        .ss-shifts tr { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px 10px; padding: 12px 12px 10px; margin-bottom: 10px; border-radius: 14px; background: rgba(255,255,255,.55); border: 1px solid var(--edge); position: relative; }
+        html[data-mode="dark"] .ss-shifts tr { background: rgba(255,255,255,.05); border-color: rgba(255,255,255,.1); }
+        .ss-shifts td { display: block; padding: 0 !important; border: 0 !important; min-width: 0; }
+        .ss-shifts td::before { content: attr(data-l); display: block; font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-4); margin-bottom: 4px; }
+        .ss-shifts td[data-l="Date"] { grid-column: 1 / -1; }
+        .ss-shifts td[data-l="Date"] input[type="date"] { width: 100%; }
+        .ss-shifts td[data-l="Live"] { text-align: left; }
+        .ss-shifts td[data-l="Live"] > div { align-items: flex-start; }
+        .ss-shifts td[data-l="Tier"] { text-align: left; }
+        .ss-shifts td[data-l="Pay"] { text-align: left; }
+        .ss-shifts td[data-l="Pay"] span { display: block; }
+        .ss-line-num { flex-wrap: wrap; margin-left: 0; }
+        .ss-shifts td[data-l="Remove"] { position: absolute; top: 8px; right: 10px; }
+        .ss-shifts td[data-l="Remove"]::before { display: none; }
+        .ss-shifts td[data-l="Remove"] button { width: 32px; height: 32px; border-radius: 9px; background: rgba(255,255,255,.6); display: inline-flex; align-items: center; justify-content: center; }
+        .ss-shifts td[data-l="Date"] input[list] { margin-top: 6px; padding: 6px 8px; font-size: 13px; }
+        .ss-shifts input { padding-left: 8px; padding-right: 8px; min-height: 40px; }
+        /* KPI numbers and insight tiles breathe on a narrow screen */
+        main .text-\[22px\] { font-size: 18px !important; }
+        .ss-kpi .v { font-size: 19px; }
+        .ss-stub-eyebrow { white-space: nowrap; }
+        .ss-inv-layout > *, .ss-inv-edit > * { min-width: 0; }
+        .ss-sheet { min-width: 0; padding: 16px; }
+        .ss-sheet-meta { grid-template-columns: 1fr; }
+        .ss-sheet-meta > div { border-right: 0; border-bottom: 1px solid rgba(28,17,38,.14); }
+        .ss-sheet-meta > div:last-child { border-bottom: 0; }
+        .ss-deck { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        .ss-focus { padding: 12px; }
+        main .text-\[10px\].truncate { white-space: normal; overflow: visible; }
+      }
+      .ss-inv-layout > *, .ss-inv-edit > * { min-width: 0; }
       /* ---------- печать / print ---------- */
       @media print {
         body { background: #fff !important; }
@@ -7749,7 +7784,10 @@ function PaystubApp({ sb = null, me = null, onSignOut = null } = {}) {
     }));
     const managerCalc = useMemo(() => {
         const rows = settings.invoices || [];
-        const pageInv = (settings.modelInvoices || []).filter((i) => !settings.payPeriod || !i.payPeriod || i.payPeriod === settings.payPeriod);
+        // invoices for this pay period, plus recent ones from a biweekly creator report
+        // (their period label never matches a weekly pay period exactly)
+        const cutoff = addDays(todayStr(settings), -16);
+        const pageInv = (settings.modelInvoices || []).filter((i) => !settings.payPeriod || !i.payPeriod || i.payPeriod === settings.payPeriod || (i.date && i.date >= cutoff));
         const pageTotal = pageInv.reduce((a, i) => a + invoiceTotals(i).total, 0);
         const invoiceTotal = rows.reduce((a, r) => a + (r.tbd ? 0 : num(r.amount)), 0) + pageTotal;
         const tbd = rows.filter((r) => r.tbd).length;
@@ -9042,26 +9080,26 @@ function PaystubApp({ sb = null, me = null, onSignOut = null } = {}) {
                                                 React.createElement("tbody", null, active.shifts.map((s, i) => {
                                                     const c = pay.shiftCalcs[i];
                                                     return (React.createElement("tr", { key: s.id, className: "border-b border-slate-100" },
-                                                        React.createElement("td", { className: "py-2 pr-2" },
+                                                        React.createElement("td", { "data-l": "Date", className: "py-2 pr-2" },
                                                             React.createElement("input", { type: "date", className: inputCls + " min-w-0 px-2", value: s.date, onChange: (e) => updateShift(active.id, s.id, {
                                                                     date: e.target.value,
                                                                 }) }),
                                                             React.createElement("input", { list: "ss-model-names", className: "mt-1 w-full min-w-0 rounded-md border border-pink-100 bg-white/70 px-2 py-0.5 text-[11.5px] text-slate-700 placeholder:text-slate-300", placeholder: "Model(s)", title: "Which model(s) this shift chatted for \u2014 comma-separated. Feeds the Models report and invoice prefills.", value: s.creators || "", onChange: (e) => updateShift(active.id, s.id, {
                                                                     creators: e.target.value,
                                                                 }) })),
-                                                        React.createElement("td", { className: "py-2 pr-2" },
+                                                        React.createElement("td", { "data-l": "Hours", className: "py-2 pr-2" },
                                                             React.createElement("input", { type: "number", step: "0.25", min: "0", className: inputCls + " min-w-0 px-2", value: s.hours, placeholder: "8", onChange: (e) => updateShift(active.id, s.id, {
                                                                     hours: e.target.value,
                                                                 }) })),
-                                                        React.createElement("td", { className: "py-2 pr-2" },
+                                                        React.createElement("td", { "data-l": "OnlyFans $", className: "py-2 pr-2" },
                                                             React.createElement("input", { type: "number", step: "0.01", min: "0", className: inputCls + " min-w-0 px-2", value: s.revenue, placeholder: "0.00", onChange: (e) => updateShift(active.id, s.id, {
                                                                     revenue: e.target.value,
                                                                 }) })),
-                                                        React.createElement("td", { className: "py-2 pr-2" },
+                                                        React.createElement("td", { "data-l": "Fansly $", className: "py-2 pr-2" },
                                                             React.createElement("input", { type: "number", step: "0.01", min: "0", className: inputCls + " min-w-0 px-2", value: s.fansly, placeholder: "0.00", onChange: (e) => updateShift(active.id, s.id, {
                                                                     fansly: e.target.value,
                                                                 }) })),
-                                                        React.createElement("td", { className: "py-2 pr-2 text-center" },
+                                                        React.createElement("td", { "data-l": "Live", className: "py-2 pr-2 text-center" },
                                                             React.createElement("div", { className: "flex flex-col items-center gap-1" },
                                                                 React.createElement("input", { type: "checkbox", className: "h-4 w-4 accent-pink-600", checked: s.streaming, onChange: (e) => updateShift(active.id, s.id, {
                                                                         streaming: e.target.checked,
@@ -9069,15 +9107,15 @@ function PaystubApp({ sb = null, me = null, onSignOut = null } = {}) {
                                                                 s.streaming && (React.createElement("input", { type: "number", step: "0.25", min: "0", className: "w-16 rounded-md border border-pink-200 bg-white px-1.5 py-1 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-pink-400", placeholder: "hrs", title: "Hours spent streaming (blank = whole shift)", value: s.streamHours, onChange: (e) => updateShift(active.id, s.id, {
                                                                         streamHours: e.target.value,
                                                                     }) })))),
-                                                        React.createElement("td", { className: "py-2 pr-1 text-center" }, c.tier >= 0 ? (React.createElement("span", { title: TIER_LABELS[c.tier], className: `inline-block rounded-md px-1.5 py-0.5 text-[11px] font-extrabold font-display ${TIER_STYLES[c.tier]}` },
+                                                        React.createElement("td", { "data-l": "Tier", className: "py-2 pr-1 text-center" }, c.tier >= 0 ? (React.createElement("span", { title: TIER_LABELS[c.tier], className: `inline-block rounded-md px-1.5 py-0.5 text-[11px] font-extrabold font-display ${TIER_STYLES[c.tier]}` },
                                                             "T",
                                                             c.tier + 1)) : (React.createElement("span", { className: "text-[11px] font-semibold text-slate-300" }, "\u2014"))),
-                                                        React.createElement("td", { className: "py-2 text-right tabular" },
+                                                        React.createElement("td", { "data-l": "Pay", className: "py-2 text-right tabular" },
                                                             React.createElement("span", { className: "font-display font-extrabold text-slate-900" }, fmt(c.total)),
                                                             c.revenue > 0 && (React.createElement("span", { className: "block text-[10px] text-slate-400 whitespace-nowrap" },
                                                                 "net $",
                                                                 Math.round(c.netRevenue).toLocaleString()))),
-                                                        React.createElement("td", { className: "py-2 pl-2 text-right" },
+                                                        React.createElement("td", { "data-l": "Remove", className: "py-2 pl-2 text-right" },
                                                             React.createElement("button", { onClick: () => updateEmployee(active.id, {
                                                                     shifts: active.shifts.length > 1
                                                                         ? active.shifts.filter((x) => x.id !== s.id)
@@ -9165,7 +9203,7 @@ function PaystubApp({ sb = null, me = null, onSignOut = null } = {}) {
                                         ].map(([v, label, tone]) => (React.createElement("div", { key: label, className: "ss-card ss-card-lift px-4 py-3.5" },
                                             React.createElement("p", { className: `font-display text-[22px] font-extrabold tabular leading-none ${tone}` }, v),
                                             React.createElement("p", { className: "ss-eyebrow mt-2" }, label))))),
-                                        React.createElement("div", { className: "grid grid-cols-3 sm:grid-cols-4 gap-x-3 gap-y-3 rounded-xl bg-pink-50/70 border border-pink-100 px-4 py-3.5" }, [
+                                        React.createElement("div", { className: "grid grid-cols-3 sm:grid-cols-4 xl:grid-cols-5 gap-x-3 gap-y-3 rounded-xl bg-pink-50/70 border border-pink-100 px-4 py-3.5" }, [
                                             [`${insights.clocked}h`, "hours clocked"],
                                             [insights.ppvSent, "PPVs sent"],
                                             [
