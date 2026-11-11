@@ -259,6 +259,105 @@ const parseDuration = (v) => {
 // ---------- saved data ----------
 // A downloaded page keeps its data in this browser, under this key.
 const STORE_KEY = "spicysweet.payroll.v2";
+// ---------- sound effects (synthesized, per device) ----------
+const SFX_KEY = STORE_KEY + ".sounds";
+const SFX_DEFAULT = { on: true, volume: 0.5, click: true, paid: true, success: true, error: true, fanfare: true };
+const SFX_EVENTS = [
+    ["click", "Navigation taps", "A soft tick when switching pages"],
+    ["paid", "Marked paid", "A two-note chime when a paystub or invoice is marked paid"],
+    ["success", "Saved / imported", "A short pop when a file saves or a sheet imports"],
+    ["error", "Problems", "A low buzz when something can't be done"],
+    ["fanfare", "All done", "A little fanfare when everyone's been paid"],
+];
+let SFX_PREFS = (() => {
+    try {
+        return { ...SFX_DEFAULT, ...(JSON.parse(window.localStorage.getItem(SFX_KEY) || "{}") || {}) };
+    }
+    catch (err) {
+        return { ...SFX_DEFAULT };
+    }
+})();
+const saveSfxPrefs = (p) => {
+    SFX_PREFS = { ...SFX_DEFAULT, ...p };
+    try {
+        window.localStorage.setItem(SFX_KEY, JSON.stringify(SFX_PREFS));
+    }
+    catch (err) { }
+};
+let SFX_CTX = null;
+const sfxCtx = () => {
+    try {
+        if (!SFX_CTX)
+            SFX_CTX = new (window.AudioContext || window.webkitAudioContext)();
+        if (SFX_CTX.state === "suspended")
+            SFX_CTX.resume();
+        return SFX_CTX;
+    }
+    catch (err) {
+        return null;
+    }
+};
+// name → list of [frequency Hz, start s, length s, type, gain]
+const SFX_PATTERNS = {
+    click: [[1800, 0, 0.03, "sine", 0.25]],
+    paid: [[660, 0, 0.12, "sine", 0.5], [990, 0.11, 0.18, "sine", 0.5]],
+    success: [[520, 0, 0.07, "triangle", 0.45], [780, 0.06, 0.1, "triangle", 0.4]],
+    error: [[180, 0, 0.16, "sawtooth", 0.3], [150, 0.14, 0.16, "sawtooth", 0.3]],
+    fanfare: [[523, 0, 0.12, "triangle", 0.5], [659, 0.12, 0.12, "triangle", 0.5], [784, 0.24, 0.12, "triangle", 0.5], [1047, 0.36, 0.3, "triangle", 0.55]],
+};
+function playSfx(name, force = false) {
+    const p = SFX_PREFS;
+    if (!force && (!p.on || p[name] === false))
+        return;
+    const ctx = sfxCtx();
+    if (!ctx)
+        return;
+    const vol = Math.max(0, Math.min(1, num(p.volume)));
+    if (vol === 0)
+        return;
+    (SFX_PATTERNS[name] || []).forEach(([f, at, len, type, g]) => {
+        const o = ctx.createOscillator();
+        const a = ctx.createGain();
+        o.type = type;
+        o.frequency.value = f;
+        const t0 = ctx.currentTime + at;
+        a.gain.setValueAtTime(0.0001, t0);
+        a.gain.exponentialRampToValueAtTime(g * vol, t0 + 0.01);
+        a.gain.exponentialRampToValueAtTime(0.0001, t0 + len);
+        o.connect(a);
+        a.connect(ctx.destination);
+        o.start(t0);
+        o.stop(t0 + len + 0.02);
+    });
+}
+function SoundSettings() {
+    const [prefs, setPrefs] = useState(SFX_PREFS);
+    const set = (patch) => {
+        const next = { ...prefs, ...patch };
+        setPrefs(next);
+        saveSfxPrefs(next);
+    };
+    return (React.createElement("section", { id: "set-sounds", className: "ss-card p-5 scroll-mt-24" },
+        React.createElement("div", { className: "flex flex-wrap items-center gap-3 mb-1" },
+            React.createElement("h3", { className: "font-display text-base font-extrabold text-slate-900" }, "Sounds"),
+            React.createElement("label", { className: "ml-auto flex items-center gap-2 text-sm font-semibold cursor-pointer" },
+                React.createElement("input", { type: "checkbox", className: "h-4 w-4 accent-pink-600", checked: !!prefs.on, onChange: (e) => set({ on: e.target.checked }) }),
+                "Sound effects ",
+                prefs.on ? "on" : "off")),
+        React.createElement("p", { className: "text-xs text-slate-500 mb-4" }, "Little cues for taps, payouts and saves. Saved on this device only \u2014 your phone and desktop can differ."),
+        React.createElement("div", { className: "flex items-center gap-3 mb-4 max-w-md" },
+            React.createElement("span", { className: "ss-eyebrow w-16" }, "Volume"),
+            React.createElement("input", { type: "range", min: "0", max: "1", step: "0.05", value: prefs.volume, onChange: (e) => set({ volume: num(e.target.value) }), onMouseUp: () => playSfx("paid", true), onTouchEnd: () => playSfx("paid", true), className: "flex-1 accent-pink-600", disabled: !prefs.on }),
+            React.createElement("span", { className: "tabular text-sm w-10 text-right" },
+                Math.round(num(prefs.volume) * 100),
+                "%")),
+        React.createElement("div", { className: "grid sm:grid-cols-2 gap-2" }, SFX_EVENTS.map(([k, label, hint]) => (React.createElement("div", { key: k, className: `flex items-center gap-3 rounded-xl border border-pink-100 bg-white/70 px-3 py-2 ${prefs.on ? "" : "opacity-50"}` },
+            React.createElement("input", { type: "checkbox", className: "h-4 w-4 accent-pink-600", checked: prefs[k] !== false, onChange: (e) => set({ [k]: e.target.checked }), disabled: !prefs.on }),
+            React.createElement("div", { className: "min-w-0 flex-1" },
+                React.createElement("p", { className: "text-sm font-semibold" }, label),
+                React.createElement("p", { className: "text-[11px] text-slate-500" }, hint)),
+            React.createElement("button", { onClick: () => playSfx(k, true), className: "ss-btn ss-btn-ghost py-1 px-2.5 text-[11.5px]", title: "Preview" }, "Play")))))));
+}
 const storageAvailable = () => {
     try {
         const k = STORE_KEY + ".probe";
@@ -1307,6 +1406,7 @@ function SendOutView({ employees, settings, prizes, invoices, onMarkPaid, onUnpa
         else {
             setFocus(null);
             setDone(true);
+            setTimeout(() => playSfx("fanfare"), 250);
         }
     };
     const skip = () => {
@@ -1337,6 +1437,7 @@ function SendOutView({ employees, settings, prizes, invoices, onMarkPaid, onUnpa
         else {
             setInvFocus(null);
             setInvDone(true);
+            setTimeout(() => playSfx("fanfare"), 250);
         }
     };
     const methodPicker = (React.createElement("label", { className: "block" },
@@ -4230,6 +4331,7 @@ const SETTINGS_SECTIONS = [
     { id: "models", label: "Models" },
     { id: "rules", label: "Strikes & prizes" },
     { id: "data", label: "Data" },
+    { id: "sounds", label: "Sounds" },
     { id: "features", label: "Features" },
 ];
 const VIEWS = [
@@ -6117,6 +6219,7 @@ function PaystubApp({ sb = null, me = null, onSignOut = null } = {}) {
             setImportPreview({ ...parsed, fileName: file.name });
         }
         catch (err) {
+            playSfx("error");
             setImportError("Couldn't read that file. Export the weekly stats as .xlsx or .csv and try again.");
         }
     };
@@ -6997,7 +7100,8 @@ function PaystubApp({ sb = null, me = null, onSignOut = null } = {}) {
         }));
         return inv.id;
     };
-    const updateModelInvoice = (id, patch) => setSettings((s) => ({ ...s, modelInvoices: (s.modelInvoices || []).map((i) => (i.id === id ? { ...i, ...patch } : i)) }));
+    const updateModelInvoice = (id, patch) => (patch && patch.status === "paid" ? playSfx("paid") : null) ||
+        setSettings((s) => ({ ...s, modelInvoices: (s.modelInvoices || []).map((i) => (i.id === id ? { ...i, ...patch } : i)) }));
     const removeModelInvoice = (id) => setSettings((s) => ({ ...s, modelInvoices: (s.modelInvoices || []).filter((i) => i.id !== id) }));
     const invoicePdf = (inv) => {
         if (!(window.jspdf && window.jspdf.jsPDF))
@@ -7050,7 +7154,8 @@ function PaystubApp({ sb = null, me = null, onSignOut = null } = {}) {
             fileRef.current.value = "";
         setImportNotice(`Creator report ${periodLabel(rep)} saved — ${rep.creators.length} models. Trends are on Insights › Models.`);
     };
-    const markEmployeePaid = (id, method) => setEmployees((list) => list.map((e) => (e.id === id ? { ...e, paid: true, paidMethod: method || e.paidMethod || "", paidDate: todayStr(settings) } : e)));
+    const markEmployeePaid = (id, method) => playSfx("paid") ||
+        setEmployees((list) => list.map((e) => (e.id === id ? { ...e, paid: true, paidMethod: method || e.paidMethod || "", paidDate: todayStr(settings) } : e)));
     const unpayEmployee = (id) => setEmployees((list) => list.map((e) => (e.id === id ? { ...e, paid: false, paidDate: "", paidMethod: "" } : e)));
     const stubPdfFor = (e) => {
         if (!(window.jspdf && window.jspdf.jsPDF))
@@ -7185,6 +7290,7 @@ function PaystubApp({ sb = null, me = null, onSignOut = null } = {}) {
     useEffect(() => {
         if (!toastMsg)
             return;
+        playSfx(/couldn't|can't|error|failed|refused/i.test(toastMsg) ? "error" : "success");
         const t = setTimeout(() => {
             setCopyMsg("");
             setSaveMsg("");
@@ -7233,7 +7339,7 @@ function PaystubApp({ sb = null, me = null, onSignOut = null } = {}) {
         catch (err) { }
     }, [sideMini]);
     const canEditRules = !me || me.role !== "manager";
-    const settingsSections = SETTINGS_SECTIONS.filter((x) => canEditRules || ["goals", "roster", "models", "data"].includes(x.id)).flatMap((x) => x.id === "data" && sb && me && me.role === "owner" ? [{ id: "people", label: "People" }, x] : [x]);
+    const settingsSections = SETTINGS_SECTIONS.filter((x) => canEditRules || ["goals", "roster", "models", "data", "sounds"].includes(x.id)).flatMap((x) => x.id === "data" && sb && me && me.role === "owner" ? [{ id: "people", label: "People" }, x] : [x]);
     const pageTitle = view === "payroll"
         ? ["Payroll", settings.payPeriod ? `Pay period ${settings.payPeriod}` : "Set the pay period in the first tile"]
         : view === "sendout"
@@ -7453,7 +7559,10 @@ function PaystubApp({ sb = null, me = null, onSignOut = null } = {}) {
                     const subOn = v.id === "insights" ? insightsTabOn : historyTabOn;
                     const setSub = v.id === "insights" ? setInsightsTab : setHistoryTab;
                     return (React.createElement("div", { key: v.id },
-                        React.createElement("button", { onClick: () => setView(v.id), "aria-current": view === v.id ? "page" : undefined, className: `ss-side-item ${view === v.id ? "is-on" : ""}`, title: v.label },
+                        React.createElement("button", { onClick: () => {
+                                playSfx("click");
+                                setView(v.id);
+                            }, "aria-current": view === v.id ? "page" : undefined, className: `ss-side-item ${view === v.id ? "is-on" : ""}`, title: v.label },
                             React.createElement(Icon, { name: v.id }),
                             React.createElement("span", { className: "ss-side-label" },
                                 React.createElement("span", { className: "hidden lg:inline" }, v.label),
@@ -8042,6 +8151,7 @@ function PaystubApp({ sb = null, me = null, onSignOut = null } = {}) {
                                         history.length > 0 &&
                                             ` ${history.length} week${history.length === 1 ? "" : "s"} of history stored.`),
                                     saveMsg2 && (React.createElement("p", { className: "text-xs font-medium text-pink-700 mt-1" }, saveMsg2))),
+                                React.createElement(SoundSettings, null),
                                 canEditRules && (React.createElement("section", { id: "set-features", className: "ss-card p-5 scroll-mt-24" },
                                     React.createElement("h3", { className: "font-display text-base font-extrabold text-slate-900 mb-0.5" }, "Features"),
                                     React.createElement("p", { className: "text-xs text-slate-500 mb-4" }, "Switch anything off and it disappears completely \u2014 its panel, its buttons and its maths. Nothing else changes."),
