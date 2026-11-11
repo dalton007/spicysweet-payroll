@@ -18,7 +18,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 
-<script>window.SPICY_VERSION = "5.3.4";</script>
+<script>window.SPICY_VERSION = "5.3.5";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.1/dist/umd/supabase.js"></script>
 <script>window.SPICY_BACKEND = {"url": "https://ctsbigebqkyggntjevqq.supabase.co", "key": "sb_publishable_2jC3tz_LgP3P-439fIjUMA_P36MN8Q0"};</script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -5691,6 +5691,18 @@ function AppStyles() {
       html[data-mode="dark"] .bg-slate-50, html[data-mode="dark"] .bg-slate-100 { background-color: rgba(255,255,255,.07) !important; }
       html[data-mode="dark"] .bg-emerald-50, html[data-mode="dark"] .bg-emerald-100 { background-color: rgba(30,158,115,.16) !important; }
       html[data-mode="dark"] .bg-amber-50, html[data-mode="dark"] .bg-yellow-50 { background-color: rgba(239,200,56,.14) !important; }
+      html[data-mode="dark"] [class*="bg-white"], html[data-mode="dark"] [class*="bg-slate-50"], html[data-mode="dark"] [class*="bg-slate-100"], html[data-mode="dark"] [class*="bg-slate-200"] { background-color: rgba(255,255,255,.06) !important; }
+      html[data-mode="dark"] [class*="bg-pink-50"], html[data-mode="dark"] [class*="bg-pink-100"], html[data-mode="dark"] [class*="bg-rose-50"] { background-color: rgba(236,42,134,.1) !important; }
+      html[data-mode="dark"] [class*="bg-red-50"], html[data-mode="dark"] [class*="bg-red-100"] { background-color: rgba(222,42,60,.16) !important; }
+      html[data-mode="dark"] [class*="bg-emerald-50"], html[data-mode="dark"] [class*="bg-emerald-100"] { background-color: rgba(30,158,115,.16) !important; }
+      html[data-mode="dark"] [class*="bg-yellow-50"], html[data-mode="dark"] [class*="bg-yellow-100"], html[data-mode="dark"] [class*="bg-amber-50"] { background-color: rgba(239,200,56,.14) !important; }
+      html[data-mode="dark"] .text-red-700, html[data-mode="dark"] .text-red-800 { color: #FF8A98 !important; }
+      html[data-mode="dark"] .text-yellow-800, html[data-mode="dark"] .text-amber-800, html[data-mode="dark"] .text-yellow-700 { color: #F4D86F !important; }
+      html[data-mode="dark"] .text-pink-800, html[data-mode="dark"] .text-pink-900, html[data-mode="dark"] .text-rose-700 { color: #FF8CC6 !important; }
+      html[data-mode="dark"] .text-emerald-800 { color: #6FD3AB !important; }
+      html[data-mode="dark"] .ss-sheet-table th, html[data-mode="dark"] .ss-table th { color: var(--ink-3); }
+      html[data-mode="dark"] .ss-done { background: rgba(30,158,115,.16); }
+      html[data-mode="dark"] .ss-line-row, html[data-mode="dark"] .ss-focus { background: rgba(255,255,255,.05); border-color: rgba(255,255,255,.1); }
       html[data-mode="dark"] .bg-slate-900 { background-color: #F6EEF4 !important; color: #1C1126 !important; }
       html[data-mode="dark"] .bg-slate-900 * { color: #1C1126 !important; }
       html[data-mode="dark"] [class*="border-pink-"], html[data-mode="dark"] [class*="border-slate-"], html[data-mode="dark"] .divide-pink-100 > * { border-color: rgba(255,255,255,.1) !important; }
@@ -5701,12 +5713,15 @@ function AppStyles() {
       html[data-mode="dark"] .ss-table th { background: rgba(255,255,255,.05); color: var(--ink-3); }
       html[data-mode="dark"] .ss-table tr.row:hover td { background: rgba(255,255,255,.06); }
       html[data-mode="dark"] .ss-table tr.row.is-on td { background: rgba(236,42,134,.18); }
-      html[data-mode="dark"] .ss-sheet { background: #FFFFFF; color: #1C1126; }
-      html[data-mode="dark"] .ss-sheet * { color: inherit !important; border-color: rgba(28,17,38,.12) !important; }
-      html[data-mode="dark"] .ss-sheet .text-slate-600, html[data-mode="dark"] .ss-sheet .text-slate-500 { color: #5F5069 !important; }
-      html[data-mode="dark"] .ss-sheet .text-pink-700 { color: #C2156B !important; }
-      html[data-mode="dark"] #paystub { background: #fff !important; color: #1C1126; }
-      html[data-mode="dark"] #paystub * { color: inherit; }
+      /* on-screen paystubs, invoices and stubs follow the theme too — only the
+         exported PDF / PNG / XLSX / PPTX files keep the fixed brand colours */
+      html[data-mode="dark"] .ss-sheet { background: rgba(255,255,255,.06); color: var(--ink); border-color: rgba(255,255,255,.1); box-shadow: 0 10px 30px -24px rgba(0,0,0,.7); }
+      html[data-mode="dark"] .ss-sheet.is-stub { background: rgba(255,255,255,.06); }
+      html[data-mode="dark"] .ss-sheet-meta, html[data-mode="dark"] .ss-sheet-meta > div { border-color: rgba(255,255,255,.14); }
+      html[data-mode="dark"] .ss-sheet-table th { background: rgba(236,42,134,.12); border-color: rgba(255,255,255,.14); }
+      html[data-mode="dark"] .ss-sheet-table td { border-color: rgba(255,255,255,.08); }
+      html[data-mode="dark"] .ss-sheet-stamp { color: #6FD3AB; border-color: #6FD3AB; }
+      html[data-mode="dark"] #paystub { background: rgba(255,255,255,.06) !important; color: var(--ink); border-color: rgba(255,255,255,.1) !important; }
       html[data-mode="dark"] .ss-avatar { color: #FFB3D8; }
       html[data-mode="dark"] .ss-avatar.is-ink { color: var(--ink); }
       html[data-mode="dark"] .ss-chip { background: rgba(255,255,255,.1); color: var(--ink-2); }
