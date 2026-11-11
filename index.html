@@ -2913,6 +2913,9 @@ function buildChecks(employees, settings, prevWeek, prizes) {
         });
         if (c.totalHours > 90)
             add("warn", name, `${round2(c.totalHours)} hours this week — more than 90.`);
+        const mpH = e.shifts.reduce((a, s) => a + num(s.mpHours), 0);
+        if (mpH > 0 && c.totalHours > 0 && mpH < c.totalHours * 0.7)
+            add("warn", name, `Only ${round2(mpH)}h of ${round2(c.totalHours)}h clocked were on Messages Pro (${((mpH / c.totalHours) * 100).toFixed(0)}% — below 70%).`);
         if (prior) {
             const p = prior[key];
             if (p && p.rev > 0) {
@@ -3456,15 +3459,32 @@ function buildInsights(emp, employees, settings) {
     const ppvSent = worked.reduce((a, x) => a + num(x.s.ppvSent), 0);
     const msgsSent = worked.reduce((a, x) => a + num(x.s.msgsSent), 0);
     const ppvUnlocked = worked.reduce((a, x) => a + num(x.s.ppvUnlocked), 0);
+    // Infloww's "Hours on Messages Pro": time actually spent in the inbox
+    const mpHours = round2(worked.reduce((a, x) => a + num(x.s.mpHours), 0));
+    const fansChatted = worked.reduce((a, x) => a + num(x.s.fansChatted), 0);
+    const clocked = c.totalHours;
+    const per = (v, h) => (h > 0 ? v / h : null);
+    const mp = {
+        hours: mpHours,
+        share: mpHours > 0 && clocked > 0 ? (mpHours / clocked) * 100 : null,
+        salesPerHour: per(c.totalRevenue, mpHours),
+        msgsPerHour: per(msgsSent, mpHours),
+        fansPerHour: per(fansChatted, mpHours),
+        salesPerClock: per(c.totalRevenue, clocked),
+        msgsPerClock: per(msgsSent, clocked),
+        fansPerClock: per(fansChatted, clocked),
+    };
     const goldenRatio = msgsSent > 0 ? (ppvSent / msgsSent) * 100 : null;
     const unlockRate = ppvSent > 0 ? (ppvUnlocked / ppvSent) * 100 : null;
     const teamMates = employees.filter((e) => (e.team || "") === (emp.team || ""));
     const ranked = teamMates
         .map((e) => {
         const ce = e.id === emp.id ? c : calcEmployee(e, settings);
+        const mph = e.shifts.reduce((a, s) => a + num(s.mpHours), 0);
         return {
             id: e.id,
             rph: ce.totalHours > 0 ? ce.totalRevenue / ce.totalHours : 0,
+            mpRph: mph > 0 ? ce.totalRevenue / mph : 0,
         };
     })
         .filter((r) => r.rph > 0)
@@ -3506,6 +3526,31 @@ function buildInsights(emp, employees, settings) {
             t: "Revenue per hour",
             b: `${fmt(rph)}/hr vs. a team average of ${fmt(teamAvgRph)}/hr. Prioritize top spenders and hot conversations first, then online fans — not whoever messaged last.`,
         });
+    }
+    // time on Messages Pro vs clocked: below 70% means they're clocked in but not in the inbox
+    if (mp.share != null) {
+        if (mp.share < 70) {
+            tips.push({
+                t: "Time on Messages Pro",
+                b: `Only ${mp.hours}h of ${round2(clocked)}h clocked were spent in Messages Pro (${mp.share.toFixed(0)}% — below the 70% line). Clocked time outside the inbox earns nothing: check for breaks, tab-switching or idle shifts, and set the expectation that clocked means chatting.`,
+            });
+        }
+        else if (mp.share >= 90) {
+            wins.push(`Locked in — ${mp.share.toFixed(0)}% of clocked time spent in Messages Pro.`);
+        }
+    }
+    if (mp.salesPerHour != null) {
+        const peers = ranked.filter((r) => r.mpRph > 0);
+        const teamMp = peers.length ? peers.reduce((a, r) => a + r.mpRph, 0) / peers.length : 0;
+        if (peers.length > 1 && teamMp > 0 && mp.salesPerHour < teamMp * 0.8) {
+            tips.push({
+                t: "Sales per Messages Pro hour",
+                b: `${fmt(mp.salesPerHour)} per hour in the inbox vs. a team average of ${fmt(teamMp)}. Time isn't the problem — conversion is. ${mp.fansPerHour != null && mp.fansPerHour < 3 ? `They're reaching ${mp.fansPerHour.toFixed(1)} fans an hour; widen the net with openers to recent spenders.` : "Pitch earlier in the conversation and follow up unopened PPVs before moving on."}`,
+            });
+        }
+        else if (peers.length > 1 && teamMp > 0 && mp.salesPerHour >= teamMp * 1.2) {
+            wins.push(`${fmt(mp.salesPerHour)} per Messages Pro hour — ${((mp.salesPerHour / teamMp - 1) * 100).toFixed(0)}% above the team.`);
+        }
     }
     if (avgResp != null) {
         if (avgResp > 5) {
@@ -3565,6 +3610,8 @@ function buildInsights(emp, employees, settings) {
         clocked: c.totalHours,
         ppvSent,
         msgsSent,
+        fansChatted,
+        mp,
         goldenRatio,
         unlockRate,
         wins,
@@ -3592,6 +3639,8 @@ function buildTeamReport(team, employees, settings) {
             ppv: e.shifts.reduce((a, s) => a + num(s.ppvSent), 0),
             msgs: e.shifts.reduce((a, s) => a + num(s.msgsSent), 0),
             unlocked: e.shifts.reduce((a, s) => a + num(s.ppvUnlocked), 0),
+            mpHours: e.shifts.reduce((a, s) => a + num(s.mpHours), 0),
+            fans: e.shifts.reduce((a, s) => a + num(s.fansChatted), 0),
             topTip: ins && ins.tips.length ? ins.tips[0].t : null,
         };
     })
@@ -3634,6 +3683,11 @@ function buildTeamReport(team, employees, settings) {
     if (strikers.length) {
         flags.strikers = strikers.map((m) => m.e.name);
         tips.push(`${strikers.length} chatter${strikers.length > 1 ? "s" : ""} at 2+ strikes (${strikers.map((m) => m.e.name).join(", ")}) — schedule reviews so bonuses come back within reach.`);
+    }
+    const idle = members.filter((m) => m.mpHours > 0 && m.hours > 0 && m.mpHours < m.hours * 0.7);
+    if (idle.length) {
+        flags.idle = idle.map((m) => m.e.name);
+        tips.push(`${idle.length} chatter${idle.length > 1 ? "s" : ""} under 70% of clocked time on Messages Pro (${idle.map((m) => `${m.e.name} ${((m.mpHours / m.hours) * 100).toFixed(0)}%`).join(", ")}). Clocked hours are being paid for time outside the inbox — review those shifts before approving pay.`);
     }
     if (teamGr != null && teamGr < 5) {
         flags.lowGR = true;
@@ -4058,8 +4112,13 @@ function parseInflowwWorkbook(wb, hoursSource) {
     const exactCol = (name) => headers.find((h) => h.toLowerCase().trim() === name);
     const colCreators = exactCol("creators") || find("creator");
     const colPpv = exactCol("direct ppvs sent") || find("ppvs sent");
-    const colMsgs = exactCol("direct messages sent");
+    const colMsgs = exactCol("direct messages sent") || exactCol("messages sent") || find("messages sent");
     const colUnlocked = exactCol("ppvs unlocked") || find("ppvs unlocked");
+    // Infloww (late 2026): time actually spent inside Messages Pro, and fans chatted —
+    // the per-hour columns are recomputed here from the totals, so they stay right
+    // when several shifts are summed.
+    const colMp = findHours("hours on messages pro") || find("hours on messages pro", "messages pro hours");
+    const colFans = exactCol("fans chatted") || find("fans chatted");
     const colHours = hoursSource === "scheduled"
         ? colScheduled || colClocked
         : colClocked || colScheduled;
@@ -4087,9 +4146,11 @@ function parseInflowwWorkbook(wb, hoursSource) {
             ppvSent: colPpv ? parseMoney(r[colPpv]) : 0,
             msgsSent: colMsgs ? parseMoney(r[colMsgs]) : 0,
             ppvUnlocked: colUnlocked ? parseMoney(r[colUnlocked]) : 0,
+            mpHours: colMp ? round2(parseDuration(r[colMp])) : 0,
+            fansChatted: colFans ? parseMoney(r[colFans]) : 0,
         });
     });
-    return { sheetName, shifts, skipped, exportTz, sheetNames: wb.SheetNames };
+    return { sheetName, shifts, skipped, exportTz, sheetNames: wb.SheetNames, hasMp: !!colMp };
 }
 // ---------- small inputs ----------
 function Field({ label, children }) {
@@ -5678,6 +5739,8 @@ function PaystubApp({ sb = null, me = null, onSignOut = null } = {}) {
                     ppvSent: s.ppvSent || 0,
                     msgsSent: s.msgsSent || 0,
                     ppvUnlocked: s.ppvUnlocked || 0,
+                    mpHours: s.mpHours || 0,
+                    fansChatted: s.fansChatted || 0,
                 }));
                 const existing = next.find((e) => e.name.trim().toLowerCase() === name.toLowerCase());
                 if (existing) {
@@ -7914,9 +7977,25 @@ function PaystubApp({ sb = null, me = null, onSignOut = null } = {}) {
                                                 "avg response time",
                                             ],
                                             [insights.msgsSent, "messages sent"],
-                                        ].map(([v, label]) => (React.createElement("div", { key: label, className: "min-w-0" },
-                                            React.createElement("p", { className: "font-display text-[15px] font-extrabold tabular text-slate-900 leading-none" }, v),
-                                            React.createElement("p", { className: "text-[10px] font-semibold uppercase tracking-[.06em] text-slate-400 mt-1 truncate" }, label))))),
+                                            ...(insights.mp && insights.mp.hours > 0
+                                                ? [
+                                                    [
+                                                        `${insights.mp.hours}h` + (insights.mp.share != null ? ` · ${insights.mp.share.toFixed(0)}%` : ""),
+                                                        "on Messages Pro",
+                                                        insights.mp.share != null && insights.mp.share < 70 ? "text-red-600" : "",
+                                                    ],
+                                                    [insights.fansChatted, "fans chatted"],
+                                                    [fmt(insights.mp.salesPerHour || 0), "sales / MP hour"],
+                                                    [(insights.mp.msgsPerHour || 0).toFixed(0), "msgs / MP hour"],
+                                                    [(insights.mp.fansPerHour || 0).toFixed(1), "fans / MP hour"],
+                                                    [fmt(insights.mp.salesPerClock || 0), "sales / clocked hr"],
+                                                    [(insights.mp.msgsPerClock || 0).toFixed(0), "msgs / clocked hr"],
+                                                    [(insights.mp.fansPerClock || 0).toFixed(1), "fans / clocked hr"],
+                                                ]
+                                                : []),
+                                        ].map(([v, label, tone]) => (React.createElement("div", { key: label, className: "min-w-0" },
+                                            React.createElement("p", { className: `font-display text-[15px] font-extrabold tabular leading-none ${tone || "text-slate-900"}` }, v),
+                                            React.createElement("p", { className: `text-[10px] font-semibold uppercase tracking-[.06em] mt-1 truncate ${tone ? "text-red-500" : "text-slate-400"}` }, label))))),
                                         followUp && (React.createElement("div", null,
                                             React.createElement("p", { className: "text-xs font-bold uppercase tracking-wide text-slate-500 mb-1.5" }, "Last week's focus \u2014 did it move?"),
                                             React.createElement("ul", { className: "space-y-1.5" }, followUp.map((f, i) => (React.createElement("li", { key: i, className: `text-sm rounded-lg border px-3 py-2 ${f.state === "up"
