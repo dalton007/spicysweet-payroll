@@ -1,0 +1,7 @@
+tools/.build/
+tests/t51*/
+tests/smoke4*/
+tests/acct50/
+tests/v40/
+*.pyc
+__pycache__/
