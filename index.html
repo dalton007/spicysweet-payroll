@@ -3513,10 +3513,38 @@ function buildModelReport(employees, settings) {
         rph: r.hours > 0 ? r.revenue / r.hours : 0,
     }))
         .sort((a, b) => b.revenue - a.revenue);
+    // with a creator report on file, the money comes from Infloww's creator stats
+    // (net, scaled to a week) and the chatter sheet only supplies the hours behind it
+    const rep = latestCreatorReport(settings);
+    if (rep && rep.creators.length) {
+        const scale = 7 / (rep.days || 14);
+        const key = (x) => String(x || "").trim().toLowerCase();
+        const repRows = rep.creators.map((c) => {
+            const tagged = rows.find((r) => key(r.name) === key(c.name) || (key(c.name).startsWith(key(r.name)) && key(r.name).length >= 3));
+            const revenue = round2(c.total * scale);
+            const hours = tagged ? tagged.hours : 0;
+            return {
+                name: c.name,
+                revenue,
+                of: revenue,
+                fansly: 0,
+                net: revenue,
+                hours,
+                shifts: tagged ? tagged.shifts : 0,
+                chatterCount: tagged ? Object.keys(tagged.chatters).length : 0,
+                rph: hours > 0 ? revenue / hours : 0,
+                periodTotal: c.total,
+                message: c.message,
+                spenders: c.spenders,
+                team: creatorTeamOf(settings, c.name),
+            };
+        }).sort((a, b) => b.revenue - a.revenue);
+        return { rows: repRows, totalRev: repRows.reduce((a, r) => a + r.revenue, 0), split, source: "report", period: periodLabel(rep), days: rep.days };
+    }
     if (!rows.length)
         return null;
     const totalRev = rows.reduce((a, r) => a + r.revenue, 0);
-    return { rows, totalRev, split };
+    return { rows, totalRev, split, source: "shifts" };
 }
 // agency-wide leaderboard (public: no strikes shown)
 function buildLeaderboard(employees, settings) {
@@ -3849,8 +3877,13 @@ function buildAttendance(employees, roster, settings) {
     const byRoster = {};
     employees.forEach((e) => {
         const r = rosterLookup(e.name, roster);
-        if (r)
-            byRoster[r.name.toLowerCase()] = e;
+        if (!r)
+            return;
+        const k = r.name.toLowerCase();
+        const workedNow = e.shifts.some((sh) => num(sh.hours) > 0 || num(sh.revenue) > 0);
+        // two entries for one roster person (a rename, a duplicate): keep the one with shifts
+        if (!byRoster[k] || (workedNow && !byRoster[k].shifts.some((sh) => num(sh.hours) > 0 || num(sh.revenue) > 0)))
+            byRoster[k] = e;
     });
     const issues = [];
     const perPerson = people.map((p) => {
@@ -4512,20 +4545,31 @@ const DEFAULT_ROSTER = [
 // matches "Jah" -> "Jahara" etc.; exact match for very short names
 let LIVE_FEATURES = DEFAULT_FEATURES; // kept in step with the feature state
 let LIVE_ROSTER = DEFAULT_ROSTER; // kept in step with the roster state
+const nameKey = (v) => String(v || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9 ]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 function rosterLookup(name, roster = null) {
-    const n = (name || "").trim().toLowerCase();
+    const n = nameKey(name);
     if (!n)
         return null;
     const list = roster || LIVE_ROSTER || DEFAULT_ROSTER;
-    const hit = list.find(([rn]) => {
-        const r = rn.toLowerCase();
-        if (r === n)
-            return true;
-        if (n.length < 3)
-            return false;
-        return r.startsWith(n) || n.startsWith(r);
+    const first = n.split(" ")[0];
+    const exact = list.find(([rn]) => nameKey(rn) === n);
+    if (exact)
+        return rosterRow(exact);
+    if (n.length < 3)
+        return null;
+    // "Flor" ↔ "Flor Mae", "Katelyn R" ↔ "Katelyn": same first name, or one is a prefix of the other
+    const loose = list.filter(([rn]) => {
+        const r = nameKey(rn);
+        const rf = r.split(" ")[0];
+        return r.startsWith(n) || n.startsWith(r) || (rf.length >= 3 && rf === first);
     });
-    return hit ? rosterRow(hit) : null;
+    return loose.length === 1 ? rosterRow(loose[0]) : loose.length > 1 ? rosterRow(loose.find(([rn]) => nameKey(rn).split(" ")[0] === first) || loose[0]) : null;
 }
 const ROSTER_STATUS = ["active", "probation", "left"];
 // roster rows are arrays so old saves keep working: [name, team, slot, start, status, daysPerWeek]
@@ -9316,7 +9360,9 @@ function PaystubApp({ sb = null, me = null, onSignOut = null } = {}) {
                                         React.createElement("div", null,
                                             React.createElement("p", { className: "ss-eyebrow" }, "Model profitability"),
                                             React.createElement("h3", { className: "font-display text-2xl font-extrabold text-slate-900 leading-none mt-1" }, "Model performance"),
-                                            React.createElement("p", { className: "text-xs text-slate-500 mt-1.5" }, "Which accounts earn best per chatter-hour")),
+                                            React.createElement("p", { className: "text-xs text-slate-500 mt-1.5" }, modelReport && modelReport.source === "report"
+                                                ? `Net earnings from the creator report (${modelReport.period}), scaled to a week; chatter hours come from the weekly sheet.`
+                                                : "Which accounts earn best per chatter-hour")),
                                         !modelReport ? (React.createElement("p", { className: "text-sm text-slate-500" }, "No model data yet \u2014 import the weekly sheet. The Creators column is what this reads.")) : (React.createElement(React.Fragment, null,
                                             React.createElement("ul", { className: "ss-stagger space-y-1.5" }, modelReport.rows.map((r, i) => (React.createElement("li", { key: r.name, className: `rounded-lg border px-3 py-2 ${i === 0
                                                     ? "bg-pink-50 border-pink-200"
@@ -9329,14 +9375,12 @@ function PaystubApp({ sb = null, me = null, onSignOut = null } = {}) {
                                                         r.name),
                                                     React.createElement("span", { className: "font-bold tabular text-rose-600" }, fmt(r.revenue))),
                                                 React.createElement("p", { className: "text-[11px] text-slate-500 mt-0.5 pl-5 tabular" },
-                                                    fmt(r.rph),
-                                                    "/hr \u00B7 ",
-                                                    round2(r.hours),
-                                                    "h \u00B7 ",
-                                                    r.chatterCount,
-                                                    " ",
-                                                    "chatter",
-                                                    r.chatterCount === 1 ? "" : "s",
+                                                    r.periodTotal != null && React.createElement("span", null,
+                                                        fmt0(r.periodTotal),
+                                                        " over ",
+                                                        modelReport.days,
+                                                        " days \u00B7 "),
+                                                    r.hours > 0 ? `${fmt(r.rph)}/hr · ${round2(r.hours)}h · ${r.chatterCount} chatter${r.chatterCount === 1 ? "" : "s"}` : r.periodTotal != null ? "no shifts tagged to this model yet" : `${fmt(r.rph)}/hr · ${round2(r.hours)}h · ${r.chatterCount} chatter${r.chatterCount === 1 ? "" : "s"}`,
                                                     " \u00B7",
                                                     " ",
                                                     ((r.revenue / modelReport.totalRev) * 100).toFixed(0),
@@ -9369,9 +9413,11 @@ function PaystubApp({ sb = null, me = null, onSignOut = null } = {}) {
                                                             return m && m.rec ? (React.createElement("div", { className: "flex-1 min-w-[200px]" },
                                                                 React.createElement(SuggestChip, { rec: m.rec, current: m.current, onUse: () => applyModelGoalRec(m.model, m.rec), compact: true }))) : null;
                                                         })())))))),
-                                            React.createElement("p", { className: "text-[10px] text-slate-400" }, modelReport.split
-                                                ? "Some shifts covered several models at once. The export doesn't split revenue by model within a shift, so those shifts are shared evenly — treat per-model figures as estimates, not exact."
-                                                : "Each shift covered a single model, so these figures are exact."))))))) : rightTab === "board" ? (React.createElement("div", { key: "board", className: "ss-in ss-card p-5 space-y-5" },
+                                            React.createElement("p", { className: "text-[10px] text-slate-400" }, modelReport.source === "report"
+                                                ? "Revenue is Infloww's net creator earnings for the report period divided to a 7-day pace. Per-hour figures use the chatter hours tagged to each model on this week's sheet."
+                                                : modelReport.split
+                                                    ? "Some shifts covered several models at once. The export doesn't split revenue by model within a shift, so those shifts are shared evenly — treat per-model figures as estimates, not exact."
+                                                    : "Each shift covered a single model, so these figures are exact."))))))) : rightTab === "board" ? (React.createElement("div", { key: "board", className: "ss-in ss-card p-5 space-y-5" },
                                     React.createElement("div", { className: "flex items-end justify-between gap-3" },
                                         React.createElement("div", null,
                                             React.createElement("h3", { className: "font-display text-2xl font-extrabold text-slate-900 leading-none" }, "Weekly leaderboard"),
