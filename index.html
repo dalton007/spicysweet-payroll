@@ -3274,8 +3274,10 @@ function buildChecks(employees, settings, prevWeek, prizes) {
             const label = (s && s.date) || `shift ${i + 1}`;
             if (k.revenue > 0 && k.hours === 0)
                 add("error", name, `${label}: ${fmt(k.revenue)} revenue with 0 hours clocked.`);
-            if (k.hours > 16)
-                add("error", name, `${label}: ${round2(k.hours)} hours in one shift — check for a typo.`);
+            if (k.hours > 24)
+                add("error", name, `${label}: ${round2(k.hours)} hours in one shift — more than a day.`);
+            else if (k.hours > 16)
+                add("info", name, `${label}: ${round2(k.hours)}h — looks like a picked-up shift (double).`);
             if (k.revenue < 0 || k.hours < 0)
                 add("error", name, `${label}: negative numbers.`);
             if (!s || !s.date)
@@ -6047,6 +6049,22 @@ function PaystubApp({ sb = null, me = null, onSignOut = null } = {}) {
     const [hoursSource, setHoursSource] = useState("clocked");
     const active = employees.find((e) => e.id === activeId) || employees[0];
     const updateEmployee = (id, patch) => setEmployees((es) => es.map((e) => (e.id === id ? { ...e, ...patch } : e)));
+    // renaming a chatter carries their roster row (team, slot, start date) along,
+    // so the time slot on the payroll table follows the new name
+    const renameEmployee = (id, name) => {
+        const emp = employees.find((e) => e.id === id);
+        const oldKey = ((emp && emp.name) || "").trim().toLowerCase();
+        const newKey = (name || "").trim().toLowerCase();
+        updateEmployee(id, { name });
+        if (!oldKey || !newKey || oldKey === newKey)
+            return;
+        setRoster((rs) => {
+            const hasNew = rs.some((r) => String(r[0] || "").trim().toLowerCase() === newKey);
+            if (hasNew)
+                return rs;
+            return rs.map((r) => (String(r[0] || "").trim().toLowerCase() === oldKey ? [name, ...r.slice(1)] : r));
+        });
+    };
     const updateShift = (empId, shiftId, patch) => setEmployees((es) => es.map((e) => e.id === empId
         ? {
             ...e,
@@ -8105,7 +8123,7 @@ function PaystubApp({ sb = null, me = null, onSignOut = null } = {}) {
                                     React.createElement("div", { className: "flex flex-wrap items-end gap-4" },
                                         React.createElement("div", { className: "grow max-w-xs" },
                                             React.createElement(Field, { label: "Chatter name" },
-                                                React.createElement("input", { className: inputCls, value: active.name, onChange: (e) => updateEmployee(active.id, { name: e.target.value }) }))),
+                                                React.createElement("input", { className: inputCls, value: active.name, onChange: (e) => renameEmployee(active.id, e.target.value) }))),
                                         React.createElement("div", { className: "grow max-w-xs" },
                                             React.createElement(Field, { label: "Team" },
                                                 React.createElement("select", { className: inputCls, value: active.team || "", onChange: (e) => updateEmployee(active.id, { team: e.target.value }) },
