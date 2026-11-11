@@ -261,28 +261,71 @@ const parseDuration = (v) => {
 const STORE_KEY = "spicysweet.payroll.v2";
 // ---------- sound effects (synthesized, per device) ----------
 const SFX_KEY = STORE_KEY + ".sounds";
-const SFX_DEFAULT = { on: true, volume: 0.5, cursor: true, click: true, open: true, toggle: true, paid: true, success: true, copy: true, remove: true, error: true, fanfare: true };
-const SFX_EVENTS = [
-    ["click", "Navigation", "A soft wooden tick when switching pages"],
-    ["open", "Open a card", "A hushed whoosh when a paystub, invoice or dialog opens"],
-    ["toggle", "Toggles & checkboxes", "A tiny click when a switch flips"],
-    ["paid", "Marked paid", "A warm two-note bell when a paystub or invoice is marked paid"],
-    ["success", "Saved / imported", "A glassy pop when a file saves or a sheet imports"],
-    ["copy", "Copied", "A double tick when text lands on the clipboard"],
-    ["remove", "Removed", "A soft downward tone when something is deleted"],
-    ["error", "Problems", "A muted thud when something can't be done"],
-    ["fanfare", "All done", "A short four-note flourish when everyone's been paid"],
+const THEMES = [
+    ["light", "Light", "The default — white glass on blush", ["#FFF7FB", "#FFFFFF", "#EC2A86"]],
+    ["dim", "Dim", "Same look, softer glow and less glare", ["#F3E9EF", "#F8F1F5", "#C2156B"]],
+    ["night", "Night", "Deep plum, frosted dark glass", ["#1C1126", "#2A1A36", "#F96FB0"]],
+    ["midnight", "Midnight", "Near-black for late shifts", ["#0B0710", "#151020", "#F96FB0"]],
 ];
+// the sound library: every cue is a recipe of layers (see playSfx)
+const SFX_LIBRARY = {
+    tick: ["Tick", "A soft wooden tick", [{ f: 1200, f2: 900, at: 0, len: 0.045, type: "sine", g: 0.22 }, { noise: true, at: 0, len: 0.03, g: 0.08, from: 2500, to: 1800 }]],
+    wood: ["Wood", "A tiny knock", [{ f: 1500, f2: 1100, at: 0, len: 0.035, type: "triangle", g: 0.14 }]],
+    bubble: ["Bubble", "A faint rounded blip", [{ f: 700, f2: 1100, at: 0, len: 0.05, type: "sine", g: 0.09 }]],
+    pop: ["Pop", "A glassy pop", [{ f: 880, f2: 1320, at: 0, len: 0.12, type: "sine", g: 0.22 }, { f: 1760, at: 0.09, len: 0.16, type: "sine", g: 0.12 }]],
+    ding: ["Ding", "A double tick", [{ f: 1400, at: 0, len: 0.04, type: "sine", g: 0.18 }, { f: 1800, at: 0.07, len: 0.05, type: "sine", g: 0.18 }]],
+    bell: ["Bell", "A warm two-note bell", [{ f: 784, at: 0, len: 0.28, type: "sine", g: 0.32, detune: 4 }, { f: 1568, at: 0, len: 0.18, type: "sine", g: 0.08 }, { f: 1175, at: 0.14, len: 0.42, type: "sine", g: 0.3, detune: -4 }, { f: 2350, at: 0.14, len: 0.2, type: "sine", g: 0.06 }]],
+    chime: ["Chime", "Three rising glass notes", [{ f: 1047, at: 0, len: 0.16, type: "sine", g: 0.22 }, { f: 1319, at: 0.09, len: 0.18, type: "sine", g: 0.2 }, { f: 1568, at: 0.18, len: 0.32, type: "sine", g: 0.2 }]],
+    harp: ["Harp", "A soft plucked arpeggio", [{ f: 523, at: 0, len: 0.3, type: "triangle", g: 0.16 }, { f: 659, at: 0.06, len: 0.3, type: "triangle", g: 0.14 }, { f: 784, at: 0.12, len: 0.3, type: "triangle", g: 0.14 }, { f: 1047, at: 0.18, len: 0.45, type: "triangle", g: 0.16 }]],
+    whoosh: ["Whoosh", "A hushed rising air", [{ noise: true, at: 0, len: 0.22, g: 0.12, from: 600, to: 2400 }, { f: 520, f2: 780, at: 0.02, len: 0.18, type: "sine", g: 0.1 }]],
+    swish: ["Swish", "A quick falling air", [{ noise: true, at: 0, len: 0.16, g: 0.12, from: 3000, to: 500 }]],
+    drop: ["Drop", "A soft downward tone", [{ f: 620, f2: 360, at: 0, len: 0.18, type: "sine", g: 0.22 }, { noise: true, at: 0, len: 0.12, g: 0.06, from: 1200, to: 400 }]],
+    rise: ["Rise", "A quick upward sweep", [{ f: 400, f2: 1200, at: 0, len: 0.16, type: "sine", g: 0.18 }]],
+    thud: ["Thud", "A muted thud", [{ f: 220, f2: 180, at: 0, len: 0.14, type: "triangle", g: 0.22 }, { f: 165, at: 0.12, len: 0.2, type: "triangle", g: 0.2 }, { noise: true, at: 0, len: 0.08, g: 0.05, from: 500, to: 200 }]],
+    buzz: ["Buzz", "A short low buzz", [{ f: 110, at: 0, len: 0.18, type: "sawtooth", g: 0.12 }, { f: 112, at: 0, len: 0.18, type: "sawtooth", g: 0.1 }]],
+    coin: ["Coin", "A bright coin ping", [{ f: 1975, at: 0, len: 0.08, type: "square", g: 0.08 }, { f: 2637, at: 0.07, len: 0.3, type: "square", g: 0.08 }]],
+    flourish: ["Flourish", "A four-note finish", [{ f: 659, at: 0, len: 0.14, type: "sine", g: 0.3, detune: 3 }, { f: 784, at: 0.12, len: 0.14, type: "sine", g: 0.3, detune: -3 }, { f: 988, at: 0.24, len: 0.14, type: "sine", g: 0.3, detune: 3 }, { f: 1319, at: 0.36, len: 0.55, type: "sine", g: 0.34, detune: -3 }, { f: 2637, at: 0.36, len: 0.3, type: "sine", g: 0.07 }, { noise: true, at: 0.36, len: 0.3, g: 0.05, from: 3000, to: 6000 }]],
+    tada: ["Ta-da", "A brassy little fanfare", [{ f: 392, at: 0, len: 0.12, type: "sawtooth", g: 0.08 }, { f: 523, at: 0.1, len: 0.12, type: "sawtooth", g: 0.08 }, { f: 659, at: 0.2, len: 0.12, type: "sawtooth", g: 0.08 }, { f: 784, at: 0.3, len: 0.5, type: "sawtooth", g: 0.1 }, { f: 1568, at: 0.3, len: 0.4, type: "sine", g: 0.08 }]],
+    none: ["Silent", "No sound", []],
+};
+// what can make a sound, and what it plays unless you change it
+const SFX_EVENTS = [
+    ["hover", "Hovering over buttons", "bubble"],
+    ["click", "Navigation", "tick"],
+    ["open", "Opening a card or dialog", "whoosh"],
+    ["toggle", "Toggles & checkboxes", "wood"],
+    ["paid", "Marked paid", "bell"],
+    ["success", "Saved / imported", "pop"],
+    ["copy", "Copied to clipboard", "ding"],
+    ["remove", "Removed / deleted", "drop"],
+    ["error", "Something went wrong", "thud"],
+    ["fanfare", "Everyone's paid", "flourish"],
+];
+const SFX_DEFAULT = { on: true, volume: 0.5, cursor: true, cursorAlpha: 0.8, theme: "light", sounds: {} };
 let SFX_PREFS = (() => {
     try {
-        return { ...SFX_DEFAULT, ...(JSON.parse(window.localStorage.getItem(SFX_KEY) || "{}") || {}) };
+        const saved = JSON.parse(window.localStorage.getItem(SFX_KEY) || "{}") || {};
+        const p = { ...SFX_DEFAULT, ...saved, sounds: { ...(saved.sounds || {}) } };
+        // 5.2.4 saved booleans per event — carry an "off" over as "none"
+        SFX_EVENTS.forEach(([k]) => {
+            if (saved[k] === false && !p.sounds[k])
+                p.sounds[k] = "none";
+        });
+        return p;
     }
     catch (err) {
-        return { ...SFX_DEFAULT };
+        return { ...SFX_DEFAULT, sounds: {} };
     }
 })();
+const sfxFor = (event) => {
+    const chosen = SFX_PREFS.sounds && SFX_PREFS.sounds[event];
+    if (chosen && SFX_LIBRARY[chosen])
+        return chosen;
+    const d = SFX_EVENTS.find(([k]) => k === event);
+    return d ? d[2] : "none";
+};
 const saveSfxPrefs = (p) => {
-    SFX_PREFS = { ...SFX_DEFAULT, ...p };
+    SFX_PREFS = { ...SFX_DEFAULT, ...p, sounds: { ...(p.sounds || {}) } };
     try {
         window.localStorage.setItem(SFX_KEY, JSON.stringify(SFX_PREFS));
     }
@@ -292,6 +335,13 @@ const saveSfxPrefs = (p) => {
     }
     catch (err) { }
 };
+const applyTheme = (t) => {
+    try {
+        document.documentElement.setAttribute("data-theme", THEMES.some(([id]) => id === t) ? t : "light");
+    }
+    catch (err) { }
+};
+applyTheme(SFX_PREFS.theme);
 let SFX_CTX = null;
 const sfxCtx = () => {
     try {
@@ -305,28 +355,6 @@ const sfxCtx = () => {
         return null;
     }
 };
-// Each cue is a list of layers. tone: { f, f2 (glide-to), at, len, type, g, detune }.
-// noise: { noise: true, at, len, g, from, to } — a band-passed hiss sweeping from→to Hz.
-// Short attack, exponential release, a touch of detune for warmth: closer to a
-// well-made app than a beep.
-const SFX_PATTERNS = {
-    click: [{ f: 1200, f2: 900, at: 0, len: 0.045, type: "sine", g: 0.22 }, { noise: true, at: 0, len: 0.03, g: 0.08, from: 2500, to: 1800 }],
-    open: [{ noise: true, at: 0, len: 0.22, g: 0.12, from: 600, to: 2400 }, { f: 520, f2: 780, at: 0.02, len: 0.18, type: "sine", g: 0.1 }],
-    toggle: [{ f: 1500, f2: 1100, at: 0, len: 0.035, type: "triangle", g: 0.14 }],
-    paid: [{ f: 784, at: 0, len: 0.28, type: "sine", g: 0.32, detune: 4 }, { f: 1568, at: 0, len: 0.18, type: "sine", g: 0.08 }, { f: 1175, at: 0.14, len: 0.42, type: "sine", g: 0.3, detune: -4 }, { f: 2350, at: 0.14, len: 0.2, type: "sine", g: 0.06 }],
-    success: [{ f: 880, f2: 1320, at: 0, len: 0.12, type: "sine", g: 0.22 }, { f: 1760, at: 0.09, len: 0.16, type: "sine", g: 0.12 }],
-    copy: [{ f: 1400, at: 0, len: 0.04, type: "sine", g: 0.18 }, { f: 1800, at: 0.07, len: 0.05, type: "sine", g: 0.18 }],
-    remove: [{ f: 620, f2: 360, at: 0, len: 0.18, type: "sine", g: 0.22 }, { noise: true, at: 0, len: 0.12, g: 0.06, from: 1200, to: 400 }],
-    error: [{ f: 220, f2: 180, at: 0, len: 0.14, type: "triangle", g: 0.22 }, { f: 165, at: 0.12, len: 0.2, type: "triangle", g: 0.2 }, { noise: true, at: 0, len: 0.08, g: 0.05, from: 500, to: 200 }],
-    fanfare: [
-        { f: 659, at: 0, len: 0.14, type: "sine", g: 0.3, detune: 3 },
-        { f: 784, at: 0.12, len: 0.14, type: "sine", g: 0.3, detune: -3 },
-        { f: 988, at: 0.24, len: 0.14, type: "sine", g: 0.3, detune: 3 },
-        { f: 1319, at: 0.36, len: 0.55, type: "sine", g: 0.34, detune: -3 },
-        { f: 2637, at: 0.36, len: 0.3, type: "sine", g: 0.07 },
-        { noise: true, at: 0.36, len: 0.3, g: 0.05, from: 3000, to: 6000 },
-    ],
-};
 let NOISE_BUF = null;
 const noiseBuffer = (ctx) => {
     if (NOISE_BUF)
@@ -337,9 +365,14 @@ const noiseBuffer = (ctx) => {
         d[i] = Math.random() * 2 - 1;
     return (NOISE_BUF = b);
 };
-function playSfx(name, force = false) {
+let LAST_HOVER = 0;
+// play a library sound by id (force = ignore the on/off switch, for previews)
+function playSound(id, force = false) {
     const p = SFX_PREFS;
-    if (!force && (!p.on || p[name] === false))
+    if (!force && !p.on)
+        return;
+    const layers = (SFX_LIBRARY[id] || SFX_LIBRARY.none)[2];
+    if (!layers.length)
         return;
     const ctx = sfxCtx();
     if (!ctx)
@@ -350,7 +383,7 @@ function playSfx(name, force = false) {
     const master = ctx.createGain();
     master.gain.value = vol;
     master.connect(ctx.destination);
-    (SFX_PATTERNS[name] || []).forEach((L) => {
+    layers.forEach((L) => {
         const t0 = ctx.currentTime + (L.at || 0);
         const env = ctx.createGain();
         env.gain.setValueAtTime(0.0001, t0);
@@ -387,12 +420,26 @@ function playSfx(name, force = false) {
         o.stop(t0 + L.len + 0.02);
     });
 }
+// play whatever sound is assigned to an event
+function playSfx(event, force = false) {
+    if (event === "hover") {
+        const now = Date.now();
+        if (now - LAST_HOVER < 90)
+            return;
+        LAST_HOVER = now;
+    }
+    playSound(sfxFor(event), force);
+}
 // a frosted dot that follows the pointer (mouse only — never on touch screens)
 function GlassCursor() {
     const ref = useRef(null);
     const [on, setOn] = useState(() => SFX_PREFS.cursor !== false);
+    const [alpha, setAlpha] = useState(() => (SFX_PREFS.cursorAlpha == null ? 0.8 : SFX_PREFS.cursorAlpha));
     useEffect(() => {
-        const sync = () => setOn(SFX_PREFS.cursor !== false);
+        const sync = () => {
+            setOn(SFX_PREFS.cursor !== false);
+            setAlpha(SFX_PREFS.cursorAlpha == null ? 0.8 : SFX_PREFS.cursorAlpha);
+        };
         window.addEventListener("ss-prefs", sync);
         return () => window.removeEventListener("ss-prefs", sync);
     }, []);
@@ -418,7 +465,7 @@ function GlassCursor() {
             y = e.clientY;
             if (!shown) {
                 shown = true;
-                el.style.opacity = "1";
+                el.classList.remove("is-hidden");
             }
             const t = e.target && e.target.closest ? e.target.closest("button, a, [role=button], input, select, textarea, label, .ss-deck-card, .ss-row, tr.row") : null;
             hot = !!t;
@@ -435,8 +482,9 @@ function GlassCursor() {
         };
         const leave = () => {
             shown = false;
-            el.style.opacity = "0";
+            el.classList.add("is-hidden");
         };
+        el.style.setProperty("--cur-a", String(Math.max(0.1, Math.min(1, num(SFX_PREFS.cursorAlpha == null ? 0.8 : SFX_PREFS.cursorAlpha)))));
         const tick = () => {
             cx += (x - cx) * 0.22;
             cy += (y - cy) * 0.22;
@@ -459,40 +507,82 @@ function GlassCursor() {
     }, [on]);
     if (!on)
         return null;
-    return React.createElement("div", { ref: ref, className: "ss-cursor print:hidden", "aria-hidden": "true" });
+    return React.createElement("div", { ref: ref, className: "ss-cursor is-hidden print:hidden", "aria-hidden": "true", style: { "--cur-a": Math.max(0.1, Math.min(1, num(alpha))) } });
+}
+function usePrefs() {
+    const [prefs, setPrefsState] = useState(SFX_PREFS);
+    const set = (patch) => {
+        const next = { ...prefs, ...patch, sounds: { ...(prefs.sounds || {}), ...((patch && patch.sounds) || {}) } };
+        setPrefsState(next);
+        saveSfxPrefs(next);
+        if (patch.theme)
+            applyTheme(patch.theme);
+    };
+    return [prefs, set];
+}
+function AppearanceSettings() {
+    const [prefs, set] = usePrefs();
+    const alpha = prefs.cursorAlpha == null ? 0.8 : prefs.cursorAlpha;
+    return (React.createElement("section", { id: "set-appearance", className: "ss-card p-5 scroll-mt-24" },
+        React.createElement("h3", { className: "font-display text-base font-extrabold text-slate-900 mb-0.5" }, "Appearance"),
+        React.createElement("p", { className: "text-xs text-slate-500 mb-4" }, "Theme and cursor. Saved on this device only, so your phone and desktop can differ."),
+        React.createElement("div", { className: "grid grid-cols-2 md:grid-cols-4 gap-2 mb-5" }, THEMES.map(([id, label, hint, sw]) => (React.createElement("button", { key: id, onClick: () => {
+                set({ theme: id });
+                playSfx("toggle");
+            }, className: `ss-theme-card ${prefs.theme === id ? "is-on" : ""}`, "aria-pressed": prefs.theme === id },
+            React.createElement("span", { className: "ss-theme-swatch", style: { background: sw[0] } },
+                React.createElement("span", { style: { background: sw[1] } }),
+                React.createElement("span", { style: { background: sw[2] } })),
+            React.createElement("b", null, label),
+            React.createElement("small", null, hint))))),
+        React.createElement("label", { className: "flex items-center gap-3 rounded-xl border border-pink-100 bg-white/70 px-3 py-2 cursor-pointer max-w-md" },
+            React.createElement("input", { type: "checkbox", className: "h-4 w-4 accent-pink-600", checked: prefs.cursor !== false, onChange: (e) => set({ cursor: e.target.checked }) }),
+            React.createElement("span", { className: "min-w-0 flex-1" },
+                React.createElement("span", { className: "text-sm font-semibold block" }, "Glass cursor"),
+                React.createElement("span", { className: "text-[11px] text-slate-500" }, "A frosted dot that follows your mouse and swells over buttons. Mouse and trackpad only."))),
+        React.createElement("div", { className: `flex items-center gap-3 mt-3 max-w-md ${prefs.cursor === false ? "opacity-50" : ""}` },
+            React.createElement("span", { className: "ss-eyebrow w-24" }, "Cursor opacity"),
+            React.createElement("input", { type: "range", min: "0.1", max: "1", step: "0.05", value: alpha, onChange: (e) => set({ cursorAlpha: num(e.target.value) }), className: "flex-1 accent-pink-600", disabled: prefs.cursor === false }),
+            React.createElement("span", { className: "tabular text-sm w-10 text-right" },
+                Math.round(num(alpha) * 100),
+                "%"))));
 }
 function SoundSettings() {
-    const [prefs, setPrefs] = useState(SFX_PREFS);
-    const set = (patch) => {
-        const next = { ...prefs, ...patch };
-        setPrefs(next);
-        saveSfxPrefs(next);
-    };
+    const [prefs, set] = usePrefs();
+    const [tab, setTab] = useState("events");
     return (React.createElement("section", { id: "set-sounds", className: "ss-card p-5 scroll-mt-24" },
         React.createElement("div", { className: "flex flex-wrap items-center gap-3 mb-1" },
-            React.createElement("h3", { className: "font-display text-base font-extrabold text-slate-900" }, "Sounds & cursor"),
+            React.createElement("h3", { className: "font-display text-base font-extrabold text-slate-900" }, "Sounds"),
             React.createElement("label", { className: "ml-auto flex items-center gap-2 text-sm font-semibold cursor-pointer" },
                 React.createElement("input", { type: "checkbox", className: "h-4 w-4 accent-pink-600", checked: !!prefs.on, onChange: (e) => set({ on: e.target.checked }) }),
                 "Sound effects ",
                 prefs.on ? "on" : "off")),
-        React.createElement("p", { className: "text-xs text-slate-500 mb-3" }, "Little cues for taps, payouts and saves. Saved on this device only \u2014 your phone and desktop can differ."),
-        React.createElement("label", { className: "flex items-center gap-3 rounded-xl border border-pink-100 bg-white/70 px-3 py-2 mb-4 cursor-pointer max-w-md" },
-            React.createElement("input", { type: "checkbox", className: "h-4 w-4 accent-pink-600", checked: prefs.cursor !== false, onChange: (e) => set({ cursor: e.target.checked }) }),
-            React.createElement("span", { className: "min-w-0 flex-1" },
-                React.createElement("span", { className: "text-sm font-semibold block" }, "Glass cursor"),
-                React.createElement("span", { className: "text-[11px] text-slate-500" }, "A frosted dot that follows your mouse and swells over buttons. Mouse and trackpad only \u2014 never on touch."))),
+        React.createElement("p", { className: "text-xs text-slate-500 mb-3" }, "Pick a sound from the library for each thing the app does, or make it silent. Saved on this device only."),
         React.createElement("div", { className: "flex items-center gap-3 mb-4 max-w-md" },
             React.createElement("span", { className: "ss-eyebrow w-16" }, "Volume"),
-            React.createElement("input", { type: "range", min: "0", max: "1", step: "0.05", value: prefs.volume, onChange: (e) => set({ volume: num(e.target.value) }), onMouseUp: () => playSfx("paid", true), onTouchEnd: () => playSfx("paid", true), className: "flex-1 accent-pink-600", disabled: !prefs.on }),
+            React.createElement("input", { type: "range", min: "0", max: "1", step: "0.05", value: prefs.volume, onChange: (e) => set({ volume: num(e.target.value) }), onMouseUp: () => playSound("bell", true), onTouchEnd: () => playSound("bell", true), className: "flex-1 accent-pink-600", disabled: !prefs.on }),
             React.createElement("span", { className: "tabular text-sm w-10 text-right" },
                 Math.round(num(prefs.volume) * 100),
                 "%")),
-        React.createElement("div", { className: "grid sm:grid-cols-2 gap-2" }, SFX_EVENTS.map(([k, label, hint]) => (React.createElement("div", { key: k, className: `flex items-center gap-3 rounded-xl border border-pink-100 bg-white/70 px-3 py-2 ${prefs.on ? "" : "opacity-50"}` },
-            React.createElement("input", { type: "checkbox", className: "h-4 w-4 accent-pink-600", checked: prefs[k] !== false, onChange: (e) => set({ [k]: e.target.checked }), disabled: !prefs.on }),
-            React.createElement("div", { className: "min-w-0 flex-1" },
-                React.createElement("p", { className: "text-sm font-semibold" }, label),
-                React.createElement("p", { className: "text-[11px] text-slate-500" }, hint)),
-            React.createElement("button", { onClick: () => playSfx(k, true), className: "ss-btn ss-btn-ghost py-1 px-2.5 text-[11.5px]", title: "Preview" }, "Play")))))));
+        React.createElement("div", { className: "flex gap-1 p-1 rounded-xl bg-slate-900/5 w-fit mb-3" }, [["events", "Assignments"], ["library", "Library"]].map(([k, label]) => (React.createElement("button", { key: k, onClick: () => setTab(k), className: `rounded-lg px-3 py-1 text-[12px] font-bold ${tab === k ? "bg-slate-900 text-white" : "text-slate-500"}` }, label)))),
+        tab === "events" ? (React.createElement("div", { className: "grid sm:grid-cols-2 gap-2" }, SFX_EVENTS.map(([k, label, dflt]) => {
+            const cur = sfxFor(k);
+            return (React.createElement("div", { key: k, className: `flex items-center gap-2 rounded-xl border border-pink-100 bg-white/70 px-3 py-2 ${prefs.on ? "" : "opacity-50"}` },
+                React.createElement("div", { className: "min-w-0 flex-1" },
+                    React.createElement("p", { className: "text-sm font-semibold truncate" }, label),
+                    React.createElement("p", { className: "text-[11px] text-slate-500 truncate" },
+                        SFX_LIBRARY[cur] ? SFX_LIBRARY[cur][1] : "",
+                        cur === dflt ? " · default" : "")),
+                React.createElement("select", { className: inputCls, style: { width: 118 }, value: prefs.sounds[k] || dflt, onChange: (e) => {
+                        set({ sounds: { [k]: e.target.value } });
+                        playSound(e.target.value, true);
+                    }, disabled: !prefs.on }, Object.entries(SFX_LIBRARY).map(([id, [name]]) => (React.createElement("option", { key: id, value: id }, name)))),
+                React.createElement("button", { onClick: () => playSound(cur, true), className: "ss-btn ss-btn-ghost py-1 px-2.5 text-[11.5px]", title: "Preview", disabled: cur === "none" }, "Play")));
+        }))) : (React.createElement("div", { className: "grid sm:grid-cols-2 lg:grid-cols-3 gap-2" }, Object.entries(SFX_LIBRARY).filter(([id]) => id !== "none").map(([id, [name, hint]]) => (React.createElement("button", { key: id, onClick: () => playSound(id, true), className: "ss-row text-left flex items-center gap-3 rounded-xl border border-pink-100 bg-white/70 px-3 py-2 hover:border-pink-400" },
+            React.createElement("span", { className: "ss-avatar", style: { width: 30, height: 30, fontSize: 11 } }, "\u25B6"),
+            React.createElement("span", { className: "min-w-0" },
+                React.createElement("b", { className: "block text-sm" }, name),
+                React.createElement("small", { className: "text-[11px] text-slate-500" }, hint)))))))));
 }
 const storageAvailable = () => {
     try {
@@ -4505,7 +4595,8 @@ const SETTINGS_SECTIONS = [
     { id: "models", label: "Models" },
     { id: "rules", label: "Strikes & prizes" },
     { id: "data", label: "Data" },
-    { id: "sounds", label: "Sounds & cursor" },
+    { id: "appearance", label: "Appearance" },
+    { id: "sounds", label: "Sounds" },
     { id: "features", label: "Features" },
 ];
 const VIEWS = [
@@ -5302,7 +5393,12 @@ function AppStyles() {
       .ss-in { animation-duration: .7s; }
       @keyframes ss-fade-up { from { opacity:0; transform: translateY(14px) scale(.985);} to { opacity:1; transform:none; } }
 
-      .ss-cursor { position: fixed; left: 0; top: 0; width: 28px; height: 28px; border-radius: 50%; pointer-events: none; z-index: 9999; opacity: 0;
+      .ss-theme-card { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; text-align: left; padding: 10px; border-radius: 14px; border: 1px solid var(--line-2); background: rgba(255,255,255,.55); }
+      .ss-theme-card.is-on { border-color: var(--pink); box-shadow: 0 0 0 3px rgba(236,42,134,.16); }
+      .ss-theme-card b { font-size: 13px; } .ss-theme-card small { font-size: 10.5px; color: var(--ink-3); line-height: 1.3; }
+      .ss-theme-swatch { display: flex; gap: 4px; align-items: flex-end; width: 100%; height: 44px; border-radius: 9px; padding: 6px; box-sizing: border-box; border: 1px solid rgba(28,17,38,.12); margin-bottom: 4px; }
+      .ss-theme-swatch span { display: block; height: 14px; border-radius: 4px; } .ss-theme-swatch span:first-child { flex: 2; } .ss-theme-swatch span:last-child { flex: 1; }
+      .ss-cursor { --cur-a: .8; position: fixed; left: 0; top: 0; width: 28px; height: 28px; border-radius: 50%; pointer-events: none; z-index: 9999; opacity: 0;
         background: rgba(255,255,255,.35); border: 1px solid rgba(255,255,255,.9);
         box-shadow: 0 6px 18px -8px rgba(236,42,134,.55), inset 0 1px 0 rgba(255,255,255,.9), 0 0 0 1px rgba(236,42,134,.18);
         backdrop-filter: blur(6px) saturate(1.6); -webkit-backdrop-filter: blur(6px) saturate(1.6);
@@ -5314,6 +5410,8 @@ function AppStyles() {
       .ss-cursor.is-text { width: 6px; height: 28px; border-radius: 4px; margin: 0 0 0 11px; background: rgba(236,42,134,.25); }
       .ss-cursor.is-text::after { display: none; }
       .ss-cursor.is-down { transform-origin: center; background: rgba(236,42,134,.28); }
+      .ss-cursor[style] { opacity: var(--cur-a) !important; }
+      .ss-cursor.is-hidden { opacity: 0 !important; }
       html.ss-has-cursor, html.ss-has-cursor body, html.ss-has-cursor a, html.ss-has-cursor button, html.ss-has-cursor label, html.ss-has-cursor select, html.ss-has-cursor [role=button] { cursor: none !important; }
       html.ss-has-cursor input, html.ss-has-cursor textarea { cursor: none !important; }
       @media (hover: none), (pointer: coarse) { .ss-cursor { display: none !important; } }
@@ -5393,6 +5491,66 @@ function AppStyles() {
       .ss-line-num { display: flex; gap: 6px; align-items: center; flex: 0 0 auto; margin-left: auto; }
       @media (prefers-reduced-motion: reduce) { .ss-orb, .ss-sheen::after, .ss-kpi.is-pink::after { animation: none !important; } }
 
+
+      /* ---------- themes (per device, html[data-theme]) ---------- */
+      html[data-theme="dim"] { --page: #F3E9EF; --glass: rgba(255,255,255,.5); --edge: rgba(255,255,255,.7); }
+      html[data-theme="dim"] body { background-color: #F3E9EF; background-image: radial-gradient(900px 500px at 12% -8%, rgba(236,42,134,.06), transparent 60%); }
+      html[data-theme="dim"] .ss-orb { opacity: .45; }
+      html[data-theme="dim"] .ss-sheen::after { animation: none; }
+      html[data-theme="night"], html[data-theme="midnight"] {
+        --ink: #F6EEF4; --ink-2: #D9CBE0; --ink-3: #A897B3; --ink-4: #7E6F8B;
+        --line: rgba(255,255,255,.08); --line-2: rgba(255,255,255,.14);
+        --page: #1C1126; --card: #2A1A36; --pink-soft: #5A2242; --pink-wash: #2E1830; --halo-soft: #3A2E12;
+        --glass: rgba(44,28,58,.62); --glass-2: rgba(52,34,68,.72); --edge: rgba(255,255,255,.12);
+        --shadow-1: 0 1px 2px rgba(0,0,0,.3); --shadow-2: 0 8px 24px -12px rgba(0,0,0,.6); --shadow-3: 0 12px 40px -12px rgba(0,0,0,.7);
+        color-scheme: dark;
+      }
+      html[data-theme="midnight"] { --page: #0B0710; --card: #151020; --glass: rgba(22,16,32,.7); --glass-2: rgba(28,20,40,.8); --pink-wash: #1A1022; }
+      html[data-theme="night"] body { background-color: #1C1126; background-image: radial-gradient(1100px 620px at 12% -8%, rgba(236,42,134,.16), transparent 60%), radial-gradient(900px 520px at 92% 4%, rgba(239,200,56,.08), transparent 62%); }
+      html[data-theme="midnight"] body { background-color: #0B0710; background-image: radial-gradient(1100px 620px at 12% -8%, rgba(236,42,134,.12), transparent 60%); }
+      html[data-theme="night"] .ss-orb, html[data-theme="midnight"] .ss-orb { opacity: .55; }
+      html[data-theme="night"] .ss-side, html[data-theme="midnight"] .ss-side { background: linear-gradient(180deg, rgba(16,9,22,.92), rgba(8,4,12,.95)); }
+      html[data-theme="night"] .ss-top, html[data-theme="midnight"] .ss-top { box-shadow: none; }
+      html[data-theme="night"] .ss-card, html[data-theme="night"] .ss-kpi, html[data-theme="night"] .ss-deck-card, html[data-theme="night"] .ss-focus, html[data-theme="night"] .ss-menu,
+      html[data-theme="midnight"] .ss-card, html[data-theme="midnight"] .ss-kpi, html[data-theme="midnight"] .ss-deck-card, html[data-theme="midnight"] .ss-focus, html[data-theme="midnight"] .ss-menu { box-shadow: 0 16px 40px -28px rgba(0,0,0,.8), inset 0 1px 0 rgba(255,255,255,.08); }
+      html[data-theme="night"] .ss-kpi.is-pink, html[data-theme="midnight"] .ss-kpi.is-pink { background: linear-gradient(160deg, rgba(236,42,134,.55), rgba(194,21,107,.45)); }
+      /* the Tailwind palette the markup uses, remapped for dark glass */
+      html[data-theme="night"] .text-slate-900, html[data-theme="midnight"] .text-slate-900, html[data-theme="night"] .text-slate-800, html[data-theme="midnight"] .text-slate-800 { color: var(--ink) !important; }
+      html[data-theme="night"] .text-slate-700, html[data-theme="midnight"] .text-slate-700, html[data-theme="night"] .text-slate-600, html[data-theme="midnight"] .text-slate-600 { color: var(--ink-2) !important; }
+      html[data-theme="night"] .text-slate-500, html[data-theme="midnight"] .text-slate-500 { color: var(--ink-3) !important; }
+      html[data-theme="night"] .text-slate-400, html[data-theme="midnight"] .text-slate-400, html[data-theme="night"] .text-slate-300, html[data-theme="midnight"] .text-slate-300 { color: var(--ink-4) !important; }
+      html[data-theme="night"] .text-pink-700, html[data-theme="midnight"] .text-pink-700, html[data-theme="night"] .text-pink-600, html[data-theme="midnight"] .text-pink-600 { color: #FF8CC6 !important; }
+      html[data-theme="night"] .text-emerald-600, html[data-theme="midnight"] .text-emerald-600, html[data-theme="night"] .text-emerald-700, html[data-theme="midnight"] .text-emerald-700 { color: #6FD3AB !important; }
+      html[data-theme="night"] .text-red-600, html[data-theme="midnight"] .text-red-600, html[data-theme="night"] .text-rose-600, html[data-theme="midnight"] .text-rose-600 { color: #FF8A98 !important; }
+      html[data-theme="night"] .text-amber-700, html[data-theme="midnight"] .text-amber-700 { color: #F4D86F !important; }
+      html[data-theme="night"] .bg-white, html[data-theme="midnight"] .bg-white, html[data-theme="night"] .bg-white\/70, html[data-theme="midnight"] .bg-white\/70, html[data-theme="night"] .bg-white\/60, html[data-theme="midnight"] .bg-white\/60 { background-color: rgba(255,255,255,.06) !important; }
+      html[data-theme="night"] .bg-pink-50, html[data-theme="midnight"] .bg-pink-50, html[data-theme="night"] .bg-pink-50\/70, html[data-theme="midnight"] .bg-pink-50\/70, html[data-theme="night"] .bg-rose-50, html[data-theme="midnight"] .bg-rose-50 { background-color: rgba(236,42,134,.09) !important; }
+      html[data-theme="night"] .bg-slate-50, html[data-theme="midnight"] .bg-slate-50, html[data-theme="night"] .bg-slate-100, html[data-theme="midnight"] .bg-slate-100 { background-color: rgba(255,255,255,.07) !important; }
+      html[data-theme="night"] .bg-emerald-50, html[data-theme="midnight"] .bg-emerald-50, html[data-theme="night"] .bg-emerald-100, html[data-theme="midnight"] .bg-emerald-100 { background-color: rgba(30,158,115,.16) !important; }
+      html[data-theme="night"] .bg-amber-50, html[data-theme="midnight"] .bg-amber-50, html[data-theme="night"] .bg-yellow-50, html[data-theme="midnight"] .bg-yellow-50 { background-color: rgba(239,200,56,.14) !important; }
+      html[data-theme="night"] .bg-slate-900, html[data-theme="midnight"] .bg-slate-900 { background-color: #F6EEF4 !important; color: #1C1126 !important; }
+      html[data-theme="night"] .bg-slate-900 *, html[data-theme="midnight"] .bg-slate-900 * { color: #1C1126 !important; }
+      html[data-theme="night"] [class*="border-pink-"], html[data-theme="midnight"] [class*="border-pink-"], html[data-theme="night"] [class*="border-slate-"], html[data-theme="midnight"] [class*="border-slate-"], html[data-theme="night"] .divide-pink-100 > *, html[data-theme="midnight"] .divide-pink-100 > * { border-color: rgba(255,255,255,.1) !important; }
+      html[data-theme="night"] input, html[data-theme="night"] select, html[data-theme="night"] textarea, html[data-theme="midnight"] input, html[data-theme="midnight"] select, html[data-theme="midnight"] textarea { background-color: rgba(255,255,255,.07) !important; color: var(--ink) !important; border-color: rgba(255,255,255,.14) !important; }
+      html[data-theme="night"] ::placeholder, html[data-theme="midnight"] ::placeholder { color: var(--ink-4) !important; }
+      html[data-theme="night"] .ss-btn-ghost, html[data-theme="midnight"] .ss-btn-ghost { background: rgba(255,255,255,.08); color: #FF8CC6; border-color: rgba(255,255,255,.14); }
+      html[data-theme="night"] .ss-btn-dark, html[data-theme="midnight"] .ss-btn-dark { background: #F6EEF4; color: #1C1126; }
+      html[data-theme="night"] .ss-table th, html[data-theme="midnight"] .ss-table th { background: rgba(255,255,255,.05); color: var(--ink-3); }
+      html[data-theme="night"] .ss-table tr.row:hover td, html[data-theme="midnight"] .ss-table tr.row:hover td { background: rgba(255,255,255,.06); }
+      html[data-theme="night"] .ss-table tr.row.is-on td, html[data-theme="midnight"] .ss-table tr.row.is-on td { background: rgba(236,42,134,.18); }
+      html[data-theme="night"] .ss-sheet, html[data-theme="midnight"] .ss-sheet { background: #FFFFFF; color: #1C1126; }
+      html[data-theme="night"] .ss-sheet *, html[data-theme="midnight"] .ss-sheet * { color: inherit !important; border-color: rgba(28,17,38,.12) !important; }
+      html[data-theme="night"] .ss-sheet .text-slate-600, html[data-theme="midnight"] .ss-sheet .text-slate-600, html[data-theme="night"] .ss-sheet .text-slate-500, html[data-theme="midnight"] .ss-sheet .text-slate-500 { color: #5F5069 !important; }
+      html[data-theme="night"] .ss-sheet .text-pink-700, html[data-theme="midnight"] .ss-sheet .text-pink-700 { color: #C2156B !important; }
+      html[data-theme="night"] #paystub, html[data-theme="midnight"] #paystub { background: #fff !important; color: #1C1126; }
+      html[data-theme="night"] #paystub *, html[data-theme="midnight"] #paystub * { color: inherit; }
+      html[data-theme="night"] .ss-avatar, html[data-theme="midnight"] .ss-avatar { color: #FFB3D8; }
+      html[data-theme="night"] .ss-avatar.is-ink, html[data-theme="midnight"] .ss-avatar.is-ink { color: var(--ink); }
+      html[data-theme="night"] .ss-chip, html[data-theme="midnight"] .ss-chip { background: rgba(255,255,255,.1); color: var(--ink-2); }
+      html[data-theme="night"] .ss-progress, html[data-theme="midnight"] .ss-progress { background: rgba(255,255,255,.1); }
+      html[data-theme="night"] .ss-toast, html[data-theme="midnight"] .ss-toast { background: #F6EEF4 !important; color: #1C1126 !important; }
+      html[data-theme="night"] .ss-theme-card, html[data-theme="midnight"] .ss-theme-card { background: rgba(255,255,255,.06); }
+      html[data-theme="night"] .ss-cursor, html[data-theme="midnight"] .ss-cursor { background: rgba(255,255,255,.14); border-color: rgba(255,255,255,.5); }
       /* ---------- печать / print ---------- */
       @media print {
         body { background: #fff !important; }
@@ -7542,7 +7700,7 @@ function PaystubApp({ sb = null, me = null, onSignOut = null } = {}) {
         catch (err) { }
     }, [sideMini]);
     const canEditRules = !me || me.role !== "manager";
-    const settingsSections = SETTINGS_SECTIONS.filter((x) => canEditRules || ["goals", "roster", "models", "data", "sounds"].includes(x.id)).flatMap((x) => x.id === "data" && sb && me && me.role === "owner" ? [{ id: "people", label: "People" }, x] : [x]);
+    const settingsSections = SETTINGS_SECTIONS.filter((x) => canEditRules || ["goals", "roster", "models", "data", "appearance", "sounds"].includes(x.id)).flatMap((x) => x.id === "data" && sb && me && me.role === "owner" ? [{ id: "people", label: "People" }, x] : [x]);
     const pageTitle = view === "payroll"
         ? ["Payroll", settings.payPeriod ? `Pay period ${settings.payPeriod}` : "Set the pay period in the first tile"]
         : view === "sendout"
@@ -7571,7 +7729,24 @@ function PaystubApp({ sb = null, me = null, onSignOut = null } = {}) {
                 playSfx("toggle");
         };
         document.addEventListener("change", h);
-        return () => document.removeEventListener("change", h);
+        let fine = false;
+        try {
+            fine = window.matchMedia("(pointer: fine)").matches;
+        }
+        catch (err) { }
+        const hv = (e) => {
+            const t = e.target && e.target.closest ? e.target.closest("button, a, .ss-deck-card, tr.row, select") : null;
+            const from = e.relatedTarget && e.relatedTarget.closest ? e.relatedTarget.closest("button, a, .ss-deck-card, tr.row, select") : null;
+            if (t && t !== from)
+                playSfx("hover");
+        };
+        if (fine)
+            document.addEventListener("mouseover", hv);
+        return () => {
+            document.removeEventListener("change", h);
+            if (fine)
+                document.removeEventListener("mouseover", hv);
+        };
     }, []);
     // the bar gains a hairline once the page moves under it
     useEffect(() => {
@@ -8365,6 +8540,7 @@ function PaystubApp({ sb = null, me = null, onSignOut = null } = {}) {
                                         history.length > 0 &&
                                             ` ${history.length} week${history.length === 1 ? "" : "s"} of history stored.`),
                                     saveMsg2 && (React.createElement("p", { className: "text-xs font-medium text-pink-700 mt-1" }, saveMsg2))),
+                                React.createElement(AppearanceSettings, null),
                                 React.createElement(SoundSettings, null),
                                 canEditRules && (React.createElement("section", { id: "set-features", className: "ss-card p-5 scroll-mt-24" },
                                     React.createElement("h3", { className: "font-display text-base font-extrabold text-slate-900 mb-0.5" }, "Features"),
