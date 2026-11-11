@@ -18,7 +18,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 
-<script>window.SPICY_VERSION = "5.3.5";</script>
+<script>window.SPICY_VERSION = "5.3.6";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.1/dist/umd/supabase.js"></script>
 <script>window.SPICY_BACKEND = {"url": "https://ctsbigebqkyggntjevqq.supabase.co", "key": "sb_publishable_2jC3tz_LgP3P-439fIjUMA_P36MN8Q0"};</script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -1949,8 +1949,10 @@ function SendOutView({ employees, settings, prizes, invoices, onMarkPaid, onUnpa
                         invCur.status === "draft" ? (React.createElement("button", { onClick: () => onMarkInvoice(invCur.id, { status: "sent" }), className: "ss-btn ss-btn-ghost justify-center" }, "Mark sent")) : invCur.status === "paid" ? (React.createElement("button", { onClick: () => onMarkInvoice(invCur.id, { status: "sent", paidDate: "", paidMethod: "" }), className: "ss-btn ss-btn-ghost justify-center" }, "Undo paid")) : (React.createElement("button", { onClick: () => setInvFocus(null), className: "ss-btn ss-btn-ghost justify-center" }, "Close")))))))));
 }
 // ---------- Invoices: create, edit, preview ----------
-function InvoicesView({ invoices, settings, modelNames, modelReport, onCreate, onUpdate, onRemove, onPdf, onInvoiceAll, canEditRules }) {
+function InvoicesView({ invoices, settings, modelNames, modelReport, onCreate, onUpdate, onRemove, onRemoveMany, onPdf, onInvoiceAll, canEditRules }) {
     const latestRep = latestCreatorReport(settings);
+    const [confirmClear, setConfirmClear] = useState(false);
+    const draftCount = invoices.filter((x) => x.status === "draft").length;
     const [sel, setSel] = useState(invoices[0] ? invoices[0].id : null);
     const [filter, setFilter] = useState("");
     const [newModel, setNewModel] = useState("");
@@ -2008,6 +2010,17 @@ function InvoicesView({ invoices, settings, modelNames, modelReport, onCreate, o
                 bankMissing && canEditRules && (React.createElement("p", { className: "text-[11px] text-amber-700 mt-2" }, "Add your bank details under Settings \u203A Invoices so they print on every invoice."))),
             React.createElement("div", { className: "ss-card ss-in ss-d1 p-2" },
                 React.createElement("div", { className: "flex gap-1 p-1" }, [["", "All"], ["draft", "Draft"], ["sent", "Sent"], ["paid", "Paid"]].map(([k, label]) => (React.createElement("button", { key: k || "all", onClick: () => setFilter(k), className: `flex-1 rounded-lg px-2 py-1 text-[11.5px] font-bold ${filter === k ? "bg-slate-900 text-white" : "text-slate-500 hover:bg-pink-50"}` }, label)))),
+                draftCount > 0 && (React.createElement("div", { className: "px-2 pb-1.5" }, confirmClear ? (React.createElement("div", { className: "flex items-center gap-1.5" },
+                    React.createElement("button", { onClick: () => { onRemoveMany(invoices.filter((x) => x.status === "draft").map((x) => x.id)); setConfirmClear(false); }, className: "ss-btn py-1 px-2.5 text-[11.5px] bg-red-600 text-white flex-1 justify-center" },
+                        "Delete ",
+                        draftCount,
+                        " draft",
+                        draftCount === 1 ? "" : "s"),
+                    React.createElement("button", { onClick: () => setConfirmClear(false), className: "ss-btn ss-btn-ghost py-1 px-2.5 text-[11.5px]" }, "Keep"))) : (React.createElement("button", { onClick: () => setConfirmClear(true), className: "ss-btn ss-btn-ghost w-full justify-center py-1 text-[11.5px] text-red-600", title: "Removes every invoice still marked Draft \u2014 sent and paid ones stay" },
+                    "Clear ",
+                    draftCount,
+                    " draft",
+                    draftCount === 1 ? "" : "s")))),
                 React.createElement("div", { className: "max-h-[60vh] overflow-y-auto" },
                     list.length === 0 && React.createElement("p", { className: "text-[12px] text-slate-500 p-3" }, "Nothing here yet."),
                     list.map((x) => {
@@ -7640,6 +7653,12 @@ function PaystubApp({ sb = null, me = null, onSignOut = null } = {}) {
     };
     const updateModelInvoice = (id, patch) => (patch && patch.status === "paid" ? playSfx("paid") : null) ||
         setSettings((s) => ({ ...s, modelInvoices: (s.modelInvoices || []).map((i) => (i.id === id ? { ...i, ...patch } : i)) }));
+    const removeModelInvoices = (ids) => {
+        playSfx("remove");
+        const gone = new Set(ids);
+        setSettings((s) => ({ ...s, modelInvoices: (s.modelInvoices || []).filter((i) => !gone.has(i.id)) }));
+        setSaveMsg(`${ids.length} draft invoice${ids.length === 1 ? "" : "s"} removed.`);
+    };
     const removeModelInvoice = (id) => playSfx("remove") ||
         setSettings((s) => ({ ...s, modelInvoices: (s.modelInvoices || []).filter((i) => i.id !== id) }));
     const invoicePdf = (inv) => {
@@ -8386,7 +8405,7 @@ function PaystubApp({ sb = null, me = null, onSignOut = null } = {}) {
                                     React.createElement("span", { className: "font-semibold" }, c.who),
                                     " \u2014 ",
                                     c.text)))))))))),
-                    view === "sendout" ? (React.createElement(SendOutView, { employees: employees, settings: settings, prizes: prizes, invoices: modelInvoices, onMarkPaid: markEmployeePaid, onUnpay: unpayEmployee, onMarkInvoice: updateModelInvoice, onStubPdf: stubPdfFor, onStubPng: stubPngFor, onInvoicePdf: invoicePdf, onAllPdfs: saveAllPdfs, canPng: true })) : view === "invoices" ? (React.createElement(InvoicesView, { invoices: modelInvoices, settings: settings, modelNames: modelNames, modelReport: invModelRows, onCreate: createInvoice, onUpdate: updateModelInvoice, onRemove: removeModelInvoice, onPdf: invoicePdf, onInvoiceAll: invoiceAllFromReport, canEditRules: canEditRules })) : view === "settings" ? (React.createElement("div", { className: "max-w-7xl mx-auto lg:grid lg:grid-cols-[190px_minmax(0,1fr)] lg:gap-6 items-start" },
+                    view === "sendout" ? (React.createElement(SendOutView, { employees: employees, settings: settings, prizes: prizes, invoices: modelInvoices, onMarkPaid: markEmployeePaid, onUnpay: unpayEmployee, onMarkInvoice: updateModelInvoice, onStubPdf: stubPdfFor, onStubPng: stubPngFor, onInvoicePdf: invoicePdf, onAllPdfs: saveAllPdfs, canPng: true })) : view === "invoices" ? (React.createElement(InvoicesView, { invoices: modelInvoices, settings: settings, modelNames: modelNames, modelReport: invModelRows, onCreate: createInvoice, onUpdate: updateModelInvoice, onRemove: removeModelInvoice, onRemoveMany: removeModelInvoices, onPdf: invoicePdf, onInvoiceAll: invoiceAllFromReport, canEditRules: canEditRules })) : view === "settings" ? (React.createElement("div", { className: "max-w-7xl mx-auto lg:grid lg:grid-cols-[190px_minmax(0,1fr)] lg:gap-6 items-start" },
                         React.createElement("aside", { className: "lg:sticky lg:top-24 mb-5 lg:mb-0 ss-card p-2" },
                             React.createElement("p", { className: "ss-eyebrow px-3 pt-2 pb-1.5" }, "On this page"),
                             React.createElement("nav", { className: "flex lg:flex-col flex-wrap gap-0.5" }, settingsSections.map((s) => (React.createElement("a", { key: s.id, href: "#set-" + s.id, onClick: (e) => {
