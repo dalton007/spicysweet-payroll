@@ -18,7 +18,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 
-<script>window.SPICY_VERSION = "5.3.7";</script>
+<script>window.SPICY_VERSION = "5.3.8";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.1/dist/umd/supabase.js"></script>
 <script>window.SPICY_BACKEND = {"url": "https://ctsbigebqkyggntjevqq.supabase.co", "key": "sb_publishable_2jC3tz_LgP3P-439fIjUMA_P36MN8Q0"};</script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -5567,6 +5567,10 @@ function AppStyles() {
       @media (hover: none), (pointer: coarse) { .ss-cursor { display: none !important; } }
       .ss-update { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 80; display: flex; align-items: center; gap: 12px; padding: 10px 12px 10px 16px; border-radius: 16px; background: rgba(28,17,38,.92); color: #fff; font-size: 13px; box-shadow: 0 18px 44px -18px rgba(0,0,0,.6); backdrop-filter: blur(12px); max-width: calc(100vw - 24px); }
       @media (max-width: 1023px) { .ss-update { bottom: calc(80px + env(safe-area-inset-bottom, 0px)); } }
+      .ss-check { border-radius: 10px; background: rgba(255,255,255,.75); border: 1px solid var(--line); padding: 7px 10px; transition: opacity var(--t-s) var(--ease), background-color var(--t-s) var(--ease); }
+      .ss-check.is-done { opacity: .55; }
+      .ss-check.is-done .ss-check-text { text-decoration: line-through; text-decoration-color: rgba(28,17,38,.35); }
+      html[data-mode="dark"] .ss-check { background: rgba(255,255,255,.06); border-color: rgba(255,255,255,.1); }
       .ss-menu { position: absolute; right: 0; top: calc(100% + 6px); z-index: 70; min-width: 260px; padding: 6px; border-radius: 14px; background: rgba(255,255,255,.92); border: 1px solid var(--edge); box-shadow: 0 18px 44px -18px rgba(28,17,38,.45); backdrop-filter: blur(var(--blur)); -webkit-backdrop-filter: blur(var(--blur)); }
       .ss-menu button { display: block; width: 100%; text-align: left; padding: 9px 11px; border-radius: 10px; }
       .ss-menu button:not(:disabled):hover { background: rgba(236,42,134,.09); transform: none; }
@@ -7231,6 +7235,32 @@ function PaystubApp({ sb = null, me = null, onSignOut = null } = {}) {
     const checks = useMemo(() => features.payrollChecks
         ? buildChecks(employees, settings, prevWeek, prizes)
         : null, [employees, settings, prevWeek, prizes, features.payrollChecks]);
+    // items the owner has ticked off as checked/fixed — kept per pay period so a
+    // new week starts clean
+    const reviewKey = settings.payPeriod || "current";
+    const reviewed = useMemo(() => new Set(((settings.reviewed || {})[reviewKey]) || []), [settings.reviewed, reviewKey]);
+    const checkKey = (c) => `${c.level}|${c.who}|${c.text}`;
+    const openChecks = useMemo(() => (checks ? checks.items.filter((c) => !reviewed.has(checkKey(c))) : []), [checks, reviewed]);
+    const openErrors = openChecks.filter((c) => c.level === "error").length;
+    const openWarnings = openChecks.filter((c) => c.level === "warn").length;
+    const setReviewedKeys = (keys) => setSettings((st) => ({ ...st, reviewed: { ...(st.reviewed || {}), [reviewKey]: keys } }));
+    const toggleReviewed = (c) => {
+        const k = checkKey(c);
+        const next = new Set(reviewed);
+        if (next.has(k))
+            next.delete(k);
+        else {
+            next.add(k);
+            playSfx("toggle");
+        }
+        setReviewedKeys([...next]);
+    };
+    const reviewAll = () => {
+        if (!checks)
+            return;
+        playSfx("success");
+        setReviewedKeys(checks.items.map(checkKey));
+    };
     const currentSnap = useMemo(() => features.trends || features.ytdTotals || features.monthRollup || features.weekBrowser
         ? buildWeekSnapshot(employees, settings, prevWeek)
         : null, [employees, settings, prevWeek, features.trends, features.ytdTotals, features.monthRollup, features.weekBrowser]);
@@ -8231,11 +8261,13 @@ function PaystubApp({ sb = null, me = null, onSignOut = null } = {}) {
                     React.createElement("h1", { className: "truncate" }, pageTitle[0]),
                     React.createElement("p", { className: "ss-top-sub truncate" }, pageTitle[1])),
                 React.createElement("div", { className: "ml-auto flex items-center gap-2 shrink-0" },
-                    view === "payroll" && features.payrollChecks && checks && checks.items.length > 0 && (React.createElement("button", { onClick: () => setShowChecks((v) => !v), className: `rounded-full px-3.5 py-1.5 text-[12px] font-bold border ${checks.errors
-                            ? "bg-red-50 border-red-200 text-red-700"
-                            : checks.warnings
-                                ? "bg-yellow-50 border-yellow-200 text-yellow-800"
-                                : "bg-white border-pink-100 text-slate-500"}` }, checks.errors ? `${checks.errors} to fix` : `${checks.items.length} to check`)),
+                    view === "payroll" && features.payrollChecks && checks && checks.items.length > 0 && (React.createElement("button", { onClick: () => setShowChecks((v) => !v), className: `rounded-full px-3.5 py-1.5 text-[12px] font-bold border ${openChecks.length === 0
+                            ? "bg-emerald-50 border-emerald-200 text-emerald-700"
+                            : openErrors
+                                ? "bg-red-50 border-red-200 text-red-700"
+                                : openWarnings
+                                    ? "bg-yellow-50 border-yellow-200 text-yellow-800"
+                                    : "bg-white border-pink-100 text-slate-500"}` }, openChecks.length === 0 ? "All checked ✓" : openErrors ? `${openErrors} to fix` : `${openChecks.length} to check`)),
                     features.fanslyPaste && (React.createElement("span", { className: "hidden sm:inline-flex" },
                         React.createElement("button", { onClick: () => setShowFanslyPaste(true), className: "ss-btn ss-btn-ghost" },
                             React.createElement(Icon, { name: "paste", size: 16 }),
@@ -8425,24 +8457,38 @@ function PaystubApp({ sb = null, me = null, onSignOut = null } = {}) {
                                     leaderboard.reduce((a, m) => a + m.hits, 0),
                                     "/",
                                     leaderboard.reduce((a, m) => a + m.shifts, 0))))),
-                        features.payrollChecks && checks && checks.items.length > 0 && showChecks && (React.createElement("div", { className: `ss-reveal mt-4 rounded-xl border p-4 ${checks.errors
-                                ? "bg-red-50 border-red-200"
-                                : checks.warnings
-                                    ? "bg-yellow-50 border-yellow-200"
-                                    : "bg-white border-pink-100"}` },
-                            React.createElement("p", { className: `text-sm font-bold ${checks.errors ? "text-red-700" : checks.warnings ? "text-amber-700" : "text-slate-700"}` }, checks.errors
-                                ? `Before you pay anyone — ${checks.errors} thing${checks.errors === 1 ? "" : "s"} to fix`
-                                : `${checks.items.length} thing${checks.items.length === 1 ? "" : "s"} worth a look`),
-                            true && (React.createElement("ul", { className: "mt-2 space-y-1.5" }, checks.items.map((c, i) => (React.createElement("li", { key: i, className: "flex gap-2 text-sm rounded-lg bg-white border border-pink-100 px-2.5 py-1.5" },
-                                React.createElement("span", { className: `font-bold shrink-0 ${c.level === "error"
-                                        ? "text-red-600"
-                                        : c.level === "warn"
-                                            ? "text-amber-600"
-                                            : "text-slate-400"}` }, c.level === "error" ? "✕" : c.level === "warn" ? "!" : "·"),
-                                React.createElement("span", { className: "text-slate-700" },
-                                    React.createElement("span", { className: "font-semibold" }, c.who),
-                                    " \u2014 ",
-                                    c.text)))))))))),
+                        features.payrollChecks && checks && checks.items.length > 0 && showChecks && (React.createElement("div", { className: `ss-reveal mt-4 rounded-xl border p-4 ${openChecks.length === 0
+                                ? "bg-emerald-50 border-emerald-200"
+                                : openErrors
+                                    ? "bg-red-50 border-red-200"
+                                    : openWarnings
+                                        ? "bg-yellow-50 border-yellow-200"
+                                        : "bg-white border-pink-100"}` },
+                            React.createElement("div", { className: "flex flex-wrap items-center gap-2" },
+                                React.createElement("p", { className: `text-sm font-bold ${openChecks.length === 0 ? "text-emerald-700" : openErrors ? "text-red-700" : openWarnings ? "text-amber-700" : "text-slate-700"}` },
+                                    openChecks.length === 0
+                                        ? `All ${checks.items.length} checked and fixed`
+                                        : openErrors
+                                            ? `Before you pay anyone — ${openErrors} thing${openErrors === 1 ? "" : "s"} to fix`
+                                            : `${openChecks.length} thing${openChecks.length === 1 ? "" : "s"} worth a look`,
+                                    openChecks.length > 0 && reviewed.size > 0 && React.createElement("span", { className: "font-normal text-slate-500" },
+                                        " \u00B7 ",
+                                        checks.items.length - openChecks.length,
+                                        " done")),
+                                React.createElement("div", { className: "ml-auto flex gap-1.5" }, openChecks.length > 0 ? (React.createElement("button", { onClick: reviewAll, className: "ss-btn ss-btn-dark py-1 px-3 text-[12px]" },
+                                    React.createElement(Icon, { name: "check", size: 13 }),
+                                    "Checked all & fixed all")) : (React.createElement("button", { onClick: () => setReviewedKeys([]), className: "ss-btn ss-btn-ghost py-1 px-3 text-[12px]" }, "Uncheck all")))),
+                            React.createElement("ul", { className: "mt-2 space-y-1.5" }, checks.items.map((c, i) => {
+                                const done = reviewed.has(checkKey(c));
+                                return (React.createElement("li", { key: i, className: `ss-check ${done ? "is-done" : ""}` },
+                                    React.createElement("label", { className: "flex gap-2.5 items-start text-sm cursor-pointer w-full" },
+                                        React.createElement("input", { type: "checkbox", className: "mt-0.5 h-4 w-4 accent-pink-600 shrink-0", checked: done, onChange: () => toggleReviewed(c), "aria-label": `Mark checked: ${c.who} — ${c.text}` }),
+                                        React.createElement("span", { className: `font-bold shrink-0 ${c.level === "error" ? "text-red-600" : c.level === "warn" ? "text-amber-600" : "text-slate-400"}` }, c.level === "error" ? "✕" : c.level === "warn" ? "!" : "·"),
+                                        React.createElement("span", { className: "text-slate-700 ss-check-text" },
+                                            React.createElement("span", { className: "font-semibold" }, c.who),
+                                            " \u2014 ",
+                                            c.text))));
+                            })))))),
                     view === "sendout" ? (React.createElement(SendOutView, { employees: employees, settings: settings, prizes: prizes, invoices: modelInvoices, onMarkPaid: markEmployeePaid, onUnpay: unpayEmployee, onMarkInvoice: updateModelInvoice, onStubPdf: stubPdfFor, onStubPng: stubPngFor, onInvoicePdf: invoicePdf, onAllPdfs: saveAllPdfs, canPng: true })) : view === "invoices" ? (React.createElement(InvoicesView, { invoices: modelInvoices, settings: settings, modelNames: modelNames, modelReport: invModelRows, onCreate: createInvoice, onUpdate: updateModelInvoice, onRemove: removeModelInvoice, onRemoveMany: removeModelInvoices, onPdf: invoicePdf, onInvoiceAll: invoiceAllFromReport, canEditRules: canEditRules })) : view === "settings" ? (React.createElement("div", { className: "max-w-7xl mx-auto lg:grid lg:grid-cols-[190px_minmax(0,1fr)] lg:gap-6 items-start" },
                         React.createElement("aside", { className: "lg:sticky lg:top-24 mb-5 lg:mb-0 ss-card p-2" },
                             React.createElement("p", { className: "ss-eyebrow px-3 pt-2 pb-1.5" }, "On this page"),
