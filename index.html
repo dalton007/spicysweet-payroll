@@ -18,7 +18,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 
-<script>window.SPICY_VERSION = "5.3.3";</script>
+<script>window.SPICY_VERSION = "5.3.4";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.1/dist/umd/supabase.js"></script>
 <script>window.SPICY_BACKEND = {"url": "https://ctsbigebqkyggntjevqq.supabase.co", "key": "sb_publishable_2jC3tz_LgP3P-439fIjUMA_P36MN8Q0"};</script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -421,11 +421,17 @@ const applyTheme = (t, prefs = SFX_PREFS) => {
             // glass surfaces tinted from the background so cards never clash with it
             el.style.setProperty("--user-card", dark ? shade(bg, 0.1) : shade(bg, 0.6));
             el.style.setProperty("--user-glass", dark ? "rgba(255,255,255,.07)" : "rgba(255,255,255,.62)");
+            // a gentle diagonal gradient built from the chosen colour: a warmer, lighter
+            // corner and a cooler, deeper one
+            el.style.setProperty("--user-bg2", dark ? shade(bg, 0.08) : shade(bg, 0.35));
+            el.style.setProperty("--user-bg3", dark ? shade(bg, -0.3) : shade(bg, -0.06));
         }
         else {
             el.style.removeProperty("--user-bg");
             el.style.removeProperty("--user-card");
             el.style.removeProperty("--user-glass");
+            el.style.removeProperty("--user-bg2");
+            el.style.removeProperty("--user-bg3");
         }
         if (ac) {
             el.style.setProperty("--user-accent", ac);
@@ -5626,7 +5632,7 @@ function AppStyles() {
 
 
       /* ---------- custom colors ---------- */
-      html[data-custom-bg="1"] body { background-color: var(--user-bg) !important; background-image: none !important; }
+      html[data-custom-bg="1"] body { background-color: var(--user-bg) !important; background-image: linear-gradient(160deg, var(--user-bg2) 0%, var(--user-bg) 50%, var(--user-bg3) 100%) !important; }
       html[data-custom-bg="1"] { --page: var(--user-bg); --card: var(--user-card); --glass: var(--user-glass); }
       html[data-custom-bg="1"] .ss-app.bg-rose-50 { background-color: transparent !important; }
       html[data-custom-accent="1"] { --pink: var(--user-accent); --pink-deep: var(--user-accent-text); }
@@ -5641,7 +5647,12 @@ function AppStyles() {
       html[data-theme="dim"] .ss-orb { opacity: calc(.45 * var(--orb-a, 1)); }
       /* ---------- themes (per device, html[data-theme]) ---------- */
       html[data-theme="dim"] { --page: #F3E9EF; --glass: rgba(255,255,255,.5); --edge: rgba(255,255,255,.7); }
-      html[data-theme="dim"] body { background-color: #F3E9EF; background-image: radial-gradient(900px 500px at 12% -8%, rgba(236,42,134,.06), transparent 60%); }
+      /* each theme gets its own full-page gradient plus matching light pools */
+      body { background-image: linear-gradient(160deg, #FFF7FB 0%, #FFEFF6 38%, #FFF9EE 72%, #F4FBF7 100%); background-attachment: fixed; }
+      html[data-theme="dim"] body { background-color: #F1E6EC; background-image: linear-gradient(160deg, #F3E9EF 0%, #EDE1EA 45%, #EDE6E0 100%); }
+      html[data-theme="dim"] .ss-orb-1 { background: radial-gradient(circle, rgba(194,21,107,.14), rgba(194,21,107,0) 70%); }
+      html[data-theme="dim"] .ss-orb-2 { background: radial-gradient(circle, rgba(185,142,22,.14), rgba(185,142,22,0) 70%); }
+      html[data-theme="dim"] .ss-orb-3 { background: radial-gradient(circle, rgba(22,129,94,.1), rgba(22,129,94,0) 70%); }
       html[data-theme="dim"] .ss-orb { opacity: .45; }
       html[data-theme="dim"] .ss-sheen::after { animation: none; }
       html[data-mode="dark"] {
@@ -5653,8 +5664,14 @@ function AppStyles() {
         color-scheme: dark;
       }
       html[data-theme="midnight"] { --page: #0B0710; --card: #151020; --glass: rgba(22,16,32,.7); --glass-2: rgba(28,20,40,.8); --pink-wash: #1A1022; }
-      html[data-theme="night"] body { background-color: #1C1126; background-image: radial-gradient(1100px 620px at 12% -8%, rgba(236,42,134,.16), transparent 60%), radial-gradient(900px 520px at 92% 4%, rgba(239,200,56,.08), transparent 62%); }
-      html[data-theme="midnight"] body { background-color: #0B0710; background-image: radial-gradient(1100px 620px at 12% -8%, rgba(236,42,134,.12), transparent 60%); }
+      html[data-theme="night"] body { background-color: #1C1126; background-image: linear-gradient(160deg, #2A1538 0%, #1C1126 42%, #151A33 100%); }
+      html[data-theme="night"] .ss-orb-1 { background: radial-gradient(circle, rgba(236,42,134,.34), rgba(236,42,134,0) 70%); }
+      html[data-theme="night"] .ss-orb-2 { background: radial-gradient(circle, rgba(239,200,56,.2), rgba(239,200,56,0) 70%); }
+      html[data-theme="night"] .ss-orb-3 { background: radial-gradient(circle, rgba(56,169,209,.22), rgba(56,169,209,0) 70%); }
+      html[data-theme="midnight"] body { background-color: #0B0710; background-image: linear-gradient(160deg, #140A1C 0%, #0B0710 45%, #070B16 100%); }
+      html[data-theme="midnight"] .ss-orb-1 { background: radial-gradient(circle, rgba(236,42,134,.26), rgba(236,42,134,0) 70%); }
+      html[data-theme="midnight"] .ss-orb-2 { background: radial-gradient(circle, rgba(159,220,242,.12), rgba(159,220,242,0) 70%); }
+      html[data-theme="midnight"] .ss-orb-3 { background: radial-gradient(circle, rgba(30,158,115,.14), rgba(30,158,115,0) 70%); }
       html[data-mode="dark"] .ss-orb { opacity: calc(.55 * var(--orb-a, 1)); }
       html[data-mode="dark"] .ss-side { background: linear-gradient(180deg, rgba(16,9,22,.92), rgba(8,4,12,.95)); }
       html[data-mode="dark"] .ss-top { box-shadow: none; }
