@@ -430,6 +430,9 @@ const DEFAULT_SETTINGS = {
     invoiceRate: 25,
     invoiceTermsDays: 6,
     modelInvoices: [],
+    invoiceBase: "net", // "net" = bill on the report's net figure, "gross" = net ÷ (1 − OF cut)
+    creatorReports: [], // Infloww biweekly creator statistics, newest last (max 12)
+    creatorTeams: {}, // { "Elara": "Team Spicy" }
     otherExpenses: [], // [{ id, label, amount }]
     // platform cuts — commission pays on what the agency actually receives
     ofCut: 20,
@@ -653,7 +656,7 @@ const newInvoiceLine = (platform = "OnlyFans", period = "", base = "", rate = 25
 function newInvoice(settings, model = "", prefill = null) {
     const date = todayStr(settings);
     const rate = num(settings.invoiceRate) || 25;
-    const period = settings.payPeriod || "";
+    const period = (prefill && prefill.period) || settings.payPeriod || "";
     let lines = [];
     if (prefill) {
         if (num(prefill.of) > 0)
@@ -886,6 +889,354 @@ function InvoiceSheet({ inv, settings, compact = false }) {
                 " (only use this for ACH transfers, not wire transfers)"),
             A.payNote && React.createElement("p", { className: "text-slate-600" }, A.payNote))),
         inv.status === "paid" && React.createElement("p", { className: "ss-sheet-stamp" }, "PAID")));
+}
+// ======================================================================
+// 5.2 — Infloww creator (model) reports
+// The biweekly "Creator Reports Overview" export: one row per creator for
+// the whole period on the first sheet, one row per creator per day on the
+// "Detail" sheet. Everything in it is NET (after the platform's cut).
+// ======================================================================
+const CREATOR_COLS = [
+    // key, header (lower-case exact), parser
+    ["total", "total earnings net", "money"],
+    ["message", "message net", "money"],
+    ["tips", "tips net", "money"],
+    ["subs", "total subscription earnings net", "money"],
+    ["newSubsRev", "subscription earnings net", "money"],
+    ["recurring", "recurring subscription earnings net", "money"],
+    ["streams", "streams net", "money"],
+    ["posts", "posts net", "money"],
+    ["refunds", "refunds net", "money"],
+    ["hourly", "avg hourly earnings net", "money"],
+    ["ranking", "of ranking", "pct"],
+    ["following", "following", "num"],
+    ["renewOn", "fans with renew on", "num"],
+    ["renewPct", "renew on %", "pct"],
+    ["visitors", "profile visitors", "num"],
+    ["newSubs", "new subscribers", "num"],
+    ["renewals", "subscriber renewals", "num"],
+    ["newSubLtv", "new subscribers ltv net", "money"],
+    ["newSubCvr", "new subscriber conversation", "pct"],
+    ["activeFans", "active fans", "num"],
+    ["expiredChange", "change in expired fan count", "num"],
+    ["spenders", "number of spenders", "num"],
+    ["avgSpend", "avg spend per spender net", "money"],
+    ["avgTxn", "avg spend per transaction net", "money"],
+    ["fans", "total number of fans", "num"],
+    ["perFan", "avg earnings per fan net", "money"],
+    ["replyMin", "reply time", "resp"],
+    ["fansChatted", "fans chatted", "num"],
+    ["msgs", "messages sent", "num"],
+    ["ppv", "ppvs sent", "num"],
+];
+const parsePct = (v) => num(String(v == null ? "" : v).replace(/[%,\s]/g, ""));
+const isCreatorSheet = (headers) => {
+    const h = headers.map((x) => String(x).toLowerCase().trim());
+    return h.includes("creator") && h.some((x) => x.startsWith("total earnings"));
+};
+const creatorPeriod = (txt) => {
+    const m = String(txt || "").match(/(\d{4}-\d{2}-\d{2})\s*-\s*(\d{4}-\d{2}-\d{2})/);
+    if (m)
+        return { start: m[1], end: m[2] };
+    const one = String(txt || "").match(/(\d{4}-\d{2}-\d{2})/);
+    return one ? { start: one[1], end: one[1] } : { start: "", end: "" };
+};
+const daysBetween = (a, b) => {
+    const d1 = new Date(a + "T12:00:00"), d2 = new Date(b + "T12:00:00");
+    if (isNaN(d1) || isNaN(d2))
+        return 14;
+    return Math.max(1, Math.round((d2 - d1) / 86400000) + 1);
+};
+function parseCreatorWorkbook(wb) {
+    const sheets = wb.SheetNames.map((n) => ({
+        name: n,
+        rows: XLSX.utils.sheet_to_json(wb.Sheets[n], { defval: "", raw: false }),
+    })).filter((s) => s.rows.length && isCreatorSheet(Object.keys(s.rows[0])));
+    if (!sheets.length)
+        return null;
+    const summary = sheets.find((s) => !/detail/i.test(s.name)) || sheets[0];
+    const detail = sheets.find((s) => /detail/i.test(s.name)) || null;
+    const mapRow = (r) => {
+        const keys = Object.keys(r);
+        const col = (phrase) => keys.find((k) => k.toLowerCase().trim() === phrase) || keys.find((k) => k.toLowerCase().trim().startsWith(phrase));
+        const out = {
+            date: String(r[col("date/time") || col("date") || ""] || "").trim(),
+            name: String(r[col("creator") || ""] || "").trim(),
+            group: String(r[col("creator group") || ""] || "").trim(),
+        };
+        CREATOR_COLS.forEach(([key, header, kind]) => {
+            const c = col(header);
+            const raw = c ? r[c] : "";
+            out[key] = kind === "money" ? parseMoney(raw) : kind === "pct" ? parsePct(raw) : kind === "resp" ? round2(parseRespMinutes(raw)) : num(String(raw).replace(/,/g, ""));
+        });
+        return out;
+    };
+    const tzHits = String(Object.keys(summary.rows[0])[0] || "").match(/[A-Za-z]+\/[A-Za-z_+-]+/g) || [];
+    const creators = summary.rows.map(mapRow).filter((c) => c.name);
+    const period = creatorPeriod(creators[0] ? creators[0].date : "");
+    const byDay = {};
+    if (detail) {
+        detail.rows.map(mapRow).filter((c) => c.name).forEach((d) => {
+            (byDay[d.name] = byDay[d.name] || []).push({ ...d, date: creatorPeriod(d.date).start });
+        });
+        Object.values(byDay).forEach((arr) => arr.sort((a, b) => (a.date < b.date ? -1 : 1)));
+    }
+    return {
+        kind: "creators",
+        id: uid(),
+        period: `${period.start} - ${period.end}`,
+        start: period.start,
+        end: period.end,
+        days: daysBetween(period.start, period.end),
+        tz: tzHits[0] || "",
+        importedAt: new Date().toISOString(),
+        creators: creators.map((c) => ({ ...c, byDay: (byDay[c.name] || []).map((d) => ({ date: d.date, total: d.total, message: d.message, tips: d.tips, subs: d.subs, activeFans: d.activeFans, newSubs: d.newSubs, spenders: d.spenders, msgs: d.msgs, ppv: d.ppv, fansChatted: d.fansChatted })) })),
+    };
+}
+const creatorReportsOf = (settings) => (settings.creatorReports || []).slice().sort((a, b) => (a.start < b.start ? -1 : 1));
+const latestCreatorReport = (settings) => {
+    const r = creatorReportsOf(settings);
+    return r.length ? r[r.length - 1] : null;
+};
+const creatorTeamOf = (settings, name) => (settings.creatorTeams || {})[name] || "";
+// invoice base: the export is net; some agencies bill on gross
+const invoiceBaseFor = (settings, net) => (settings.invoiceBase || "net") === "gross" ? round2(num(net) / Math.max(0.01, 1 - num(settings.ofCut) / 100)) : round2(num(net));
+const pctChange = (now, before) => (before > 0 ? ((now - before) / before) * 100 : null);
+const periodLabel = (rep) => (rep ? `${prettyDate(rep.start)} – ${prettyDate(rep.end)}` : "");
+// improving or not: each creator against their previous report, plus reads
+function buildCreatorTrends(settings) {
+    const reports = creatorReportsOf(settings);
+    if (!reports.length)
+        return null;
+    const latest = reports[reports.length - 1];
+    const prev = reports.length > 1 ? reports[reports.length - 2] : null;
+    const older = reports.slice(0, -1);
+    const rows = latest.creators.map((c) => {
+        const p = prev ? prev.creators.find((x) => x.name === c.name) : null;
+        const series = reports.map((r) => {
+            const h = r.creators.find((x) => x.name === c.name);
+            return h ? h.total : 0;
+        });
+        const weeklyEq = (c.total / latest.days) * 7;
+        const change = p ? pctChange(c.total, p.total) : null;
+        const msgChange = p ? pctChange(c.message, p.message) : null;
+        const fanChange = p ? c.activeFans - p.activeFans : null;
+        const half = Math.ceil(c.byDay.length / 2);
+        const firstHalf = c.byDay.slice(0, half).reduce((a, d) => a + d.total, 0);
+        const secondHalf = c.byDay.slice(half).reduce((a, d) => a + d.total, 0);
+        const momentum = firstHalf > 0 && c.byDay.length >= 6 ? pctChange(secondHalf, firstHalf) : null;
+        const ppvPerMsg = c.msgs > 0 ? (c.ppv / c.msgs) * 100 : null;
+        const msgShare = c.total > 0 ? (c.message / c.total) * 100 : null;
+        const wins = [];
+        const tips = [];
+        if (change != null) {
+            if (change >= 10)
+                wins.push(`Up ${change.toFixed(0)}% on the last report (${fmt(p.total)} → ${fmt(c.total)}).`);
+            else if (change <= -10)
+                tips.push({ t: "Earnings slipping", b: `Down ${Math.abs(change).toFixed(0)}% vs the last report (${fmt(p.total)} → ${fmt(c.total)}).${msgChange != null && msgChange < change - 5 ? " Message sales fell faster than the rest — the chat side is where it's leaking." : ""}` });
+            else
+                wins.push(`Holding steady — within ${Math.abs(change).toFixed(0)}% of the last report.`);
+        }
+        if (momentum != null) {
+            if (momentum >= 20)
+                wins.push(`Finishing strong: the second week did ${momentum.toFixed(0)}% more than the first.`);
+            else if (momentum <= -20)
+                tips.push({ t: "Faded in week two", b: `Second week came in ${Math.abs(momentum).toFixed(0)}% under the first. Check whether a promo or push ended, or shifts thinned out.` });
+        }
+        if (fanChange != null && fanChange <= -5)
+            tips.push({ t: "Losing active fans", b: `${Math.abs(fanChange)} fewer active fans than last report${c.expiredChange > 0 ? `, and ${c.expiredChange} more expired` : ""}. Re-engage lapsed spenders with personal openers before chasing new traffic.` });
+        if (c.renewPct > 0 && c.renewPct < 25)
+            tips.push({ t: "Low renew-on rate", b: `Only ${c.renewPct.toFixed(0)}% of fans have renew on. Push the value of staying subscribed in DMs — exclusive drops, early access — before their month ends.` });
+        if (c.replyMin > 15)
+            tips.push({ t: "Slow replies", b: `Average reply time is ${c.replyMin.toFixed(0)} minutes on this account. Fans go cold past ~10 — check shift coverage on ${creatorTeamOf(settings, c.name) || "this account's team"}.` });
+        else if (c.replyMin > 0 && c.replyMin <= 6)
+            wins.push(`Fast replies — ${c.replyMin.toFixed(1)} min average.`);
+        if (ppvPerMsg != null && ppvPerMsg < 3 && c.msgs > 300)
+            tips.push({ t: "Not pitching enough", b: `${c.ppv} PPVs across ${c.msgs} messages (${ppvPerMsg.toFixed(1)}%). Aim for 1 PPV per 12–15 messages.` });
+        if (c.spenders > 0 && c.avgSpend >= 100)
+            wins.push(`Whales are spending — ${fmt(c.avgSpend)} per spender across ${c.spenders} spenders.`);
+        if (c.newSubs >= 50 && c.newSubCvr > 0 && c.newSubCvr < 1)
+            tips.push({ t: "New subs aren't converting", b: `${c.newSubs} new subscribers but only ${c.newSubCvr.toFixed(1)}% started a conversation. A welcome message within the first hour is the cheapest fix.` });
+        if (!tips.length && !wins.length)
+            wins.push("Nothing flagged on this report.");
+        return { ...c, prev: p, change, msgChange, fanChange, momentum, ppvPerMsg, msgShare, weeklyEq, series, wins, tips, team: creatorTeamOf(settings, c.name), direction: change == null ? "new" : change >= 10 ? "up" : change <= -10 ? "down" : "flat" };
+    }).sort((a, b) => b.total - a.total);
+    const teams = {};
+    rows.forEach((r) => {
+        const k = r.team || "Unassigned";
+        const t = (teams[k] = teams[k] || { team: k, total: 0, prevTotal: 0, creators: [], hasPrev: false });
+        t.total += r.total;
+        t.creators.push(r.name);
+        if (r.prev) {
+            t.prevTotal += r.prev.total;
+            t.hasPrev = true;
+        }
+    });
+    const teamRows = Object.values(teams).map((t) => ({ ...t, change: t.hasPrev ? pctChange(t.total, t.prevTotal) : null })).sort((a, b) => b.total - a.total);
+    const total = rows.reduce((a, r) => a + r.total, 0);
+    const prevTotal = prev ? prev.creators.reduce((a, c) => a + c.total, 0) : 0;
+    const totalSeries = reports.map((r) => r.creators.reduce((a, c) => a + c.total, 0));
+    return { latest, prev, reports, rows, teams: teamRows, total, prevTotal, change: prev ? pctChange(total, prevTotal) : null, totalSeries, older: older.length };
+}
+// weekly-equivalent series for goal recommendations (reports are 14-day)
+const creatorWeeklySeries = (settings, name) => creatorReportsOf(settings).map((r) => {
+    const c = r.creators.find((x) => x.name === name);
+    return c ? (c.total / (r.days || 14)) * 7 : 0;
+});
+function creatorSummaryText(t) {
+    if (!t)
+        return "";
+    const lines = [`Creator report ${periodLabel(t.latest)} — total ${fmt(t.total)}${t.change != null ? ` (${t.change >= 0 ? "+" : ""}${t.change.toFixed(0)}% vs last report)` : ""}`];
+    t.rows.forEach((r) => lines.push(`• ${r.name}${r.team ? ` (${r.team.replace("Team ", "")})` : ""}: ${fmt(r.total)}${r.change != null ? ` ${r.change >= 0 ? "▲" : "▼"} ${Math.abs(r.change).toFixed(0)}%` : ""}${r.tips.length ? ` — ${r.tips[0].t}` : ""}`));
+    return lines.join("\n");
+}
+// Import preview for a creator report: assign teams, optionally draft invoices
+function CreatorImportDialog({ rep, settings, onCancel, onConfirm }) {
+    const [teams, setTeams] = useState(() => {
+        const t = {};
+        rep.creators.forEach((c) => (t[c.name] = creatorTeamOf(settings, c.name) || matchTeam(c.group) || ""));
+        return t;
+    });
+    const [draft, setDraft] = useState(true);
+    const exists = (settings.creatorReports || []).some((r) => r.period === rep.period);
+    const total = rep.creators.reduce((a, c) => a + c.total, 0);
+    return (React.createElement("div", { className: "ss-fade fixed inset-0 z-50 bg-slate-900/60 flex items-center justify-center p-4 print:hidden" },
+        React.createElement("div", { className: "ss-pop bg-white rounded-2xl shadow-xl max-w-lg w-full p-5 space-y-4 max-h-[92vh] overflow-y-auto" },
+            React.createElement("div", null,
+                React.createElement("p", { className: "ss-eyebrow" }, "Creator report"),
+                React.createElement("h3", { className: "font-display text-lg font-extrabold" },
+                    "Import ",
+                    periodLabel(rep),
+                    "?"),
+                React.createElement("p", { className: "text-sm text-slate-600 mt-1" },
+                    rep.creators.length,
+                    " model",
+                    rep.creators.length === 1 ? "" : "s",
+                    " \u00B7 ",
+                    fmt(total),
+                    " net over ",
+                    rep.days,
+                    " days",
+                    rep.creators.some((c) => c.byDay.length) ? " · daily detail included" : "",
+                    ".",
+                    exists && React.createElement("span", { className: "text-amber-700" }, " This period is already saved \u2014 importing again replaces it."))),
+            React.createElement("div", { className: "space-y-1.5" },
+                React.createElement("p", { className: "ss-eyebrow" }, "Which chat team runs each model"),
+                rep.creators.map((c) => (React.createElement("div", { key: c.name, className: "flex items-center gap-2 text-sm" },
+                    React.createElement("span", { className: "font-semibold w-28 truncate" }, c.name),
+                    React.createElement("span", { className: "tabular text-slate-500 w-20 text-right" }, fmt0(c.total)),
+                    React.createElement("select", { className: inputCls, style: { flex: 1 }, value: teams[c.name] || "", onChange: (e) => setTeams((t) => ({ ...t, [c.name]: e.target.value })) },
+                        React.createElement("option", { value: "" }, "\u2014 no team \u2014"),
+                        TEAM_DEFS.map((t) => (React.createElement("option", { key: t.team, value: t.team },
+                            t.emoji,
+                            " ",
+                            t.team)))))))),
+            React.createElement("label", { className: "flex items-start gap-2 text-sm cursor-pointer" },
+                React.createElement("input", { type: "checkbox", className: "mt-0.5 h-4 w-4 accent-pink-600", checked: draft, onChange: (e) => setDraft(e.target.checked) }),
+                React.createElement("span", null,
+                    "Draft an invoice for each model at ",
+                    num(settings.invoiceRate) || 25,
+                    "% of ",
+                    (settings.invoiceBase || "net") === "gross" ? "gross (net ÷ " + (100 - num(settings.ofCut)) + "%)" : "net",
+                    " earnings",
+                    React.createElement("span", { className: "block text-[11px] text-slate-500" }, "Models already invoiced for this period are skipped. Change the base under Settings \u203A Invoices."))),
+            React.createElement("div", { className: "flex justify-end gap-2" },
+                React.createElement("button", { onClick: onCancel, className: "ss-btn ss-btn-ghost" }, "Cancel"),
+                React.createElement("button", { onClick: () => onConfirm(teams, draft), className: "ss-btn ss-btn-primary ss-sheen" }, "Import report")))));
+}
+// the Models tab block: trends from the creator reports
+function CreatorTrendsPanel({ settings, setSettings, onCopy, onInvoiceAll }) {
+    const t = useMemo(() => buildCreatorTrends(settings), [settings]);
+    const [open, setOpen] = useState(null);
+    if (!t) {
+        return (React.createElement("div", { className: "ss-card ss-in p-5" },
+            React.createElement("p", { className: "ss-eyebrow" }, "Creator reports"),
+            React.createElement("p", { className: "text-sm text-slate-500 mt-1" }, "Import Infloww's biweekly creator statistics (Import \u203A Creator report) to see how each model is trending and to draft invoices from real numbers.")));
+    }
+    const arrow = (v) => (v == null ? "" : v >= 0 ? "▲" : "▼");
+    const tone = (v) => (v == null ? "text-slate-400" : v >= 10 ? "text-emerald-600" : v <= -10 ? "text-red-600" : "text-slate-600");
+    return (React.createElement("div", { className: "space-y-4" },
+        React.createElement("div", { className: "ss-card ss-in p-5" },
+            React.createElement("div", { className: "flex flex-wrap items-start gap-3" },
+                React.createElement("div", null,
+                    React.createElement("p", { className: "ss-eyebrow" },
+                        "Creator reports \u00B7 ",
+                        t.reports.length,
+                        " on file"),
+                    React.createElement("h3", { className: "font-display text-2xl font-extrabold leading-none mt-1" }, periodLabel(t.latest)),
+                    React.createElement("p", { className: "text-xs text-slate-500 mt-1.5" }, "Net earnings from Infloww, every model, with the previous report for comparison.")),
+                React.createElement("div", { className: "ml-auto text-right" },
+                    React.createElement("p", { className: "ss-eyebrow" }, "All models"),
+                    React.createElement("p", { className: "font-display text-2xl font-extrabold tabular" }, fmt(t.total)),
+                    t.change != null && React.createElement("p", { className: `text-[12px] font-bold ${tone(t.change)}` },
+                        arrow(t.change),
+                        " ",
+                        Math.abs(t.change).toFixed(0),
+                        "% vs ",
+                        periodLabel(t.prev)))),
+            t.totalSeries.length > 1 && (React.createElement("div", { className: "mt-3" },
+                React.createElement(Spark, { points: t.totalSeries.map((v, i) => ({ v, label: t.reports[i].period })), color: "#EC2A86", height: 48, fmtVal: fmt0 }))),
+            React.createElement("div", { className: "grid grid-cols-2 md:grid-cols-4 gap-2 mt-4" }, t.teams.map((tm) => (React.createElement("div", { key: tm.team, className: "rounded-xl bg-white/70 border border-pink-100 px-3 py-2.5" },
+                React.createElement("p", { className: "ss-eyebrow truncate" }, tm.team.replace("Team ", "")),
+                React.createElement("p", { className: "font-display text-lg font-extrabold tabular leading-none mt-1" }, fmt0(tm.total)),
+                React.createElement("p", { className: `text-[11px] font-bold mt-1 ${tone(tm.change)}` }, tm.change == null ? `${tm.creators.length} model${tm.creators.length === 1 ? "" : "s"}` : `${arrow(tm.change)} ${Math.abs(tm.change).toFixed(0)}% · ${tm.creators.length} model${tm.creators.length === 1 ? "" : "s"}`))))),
+            React.createElement("div", { className: "flex flex-wrap gap-2 mt-4" },
+                React.createElement("button", { onClick: () => onCopy(creatorSummaryText(t)), className: "ss-btn ss-btn-ghost py-1.5" }, "Copy summary"),
+                React.createElement("button", { onClick: () => onInvoiceAll(t.latest), className: "ss-btn ss-btn-dark py-1.5" }, "Draft invoices for this report"))),
+        React.createElement("ul", { className: "space-y-2 ss-stagger" }, t.rows.map((r) => (React.createElement("li", { key: r.name, className: "ss-card ss-card-lift p-4" },
+            React.createElement("button", { onClick: () => setOpen(open === r.name ? null : r.name), className: "w-full text-left flex flex-wrap items-center gap-3" },
+                React.createElement("span", { className: `ss-avatar is-ink` }, initials(r.name)),
+                React.createElement("span", { className: "min-w-0 flex-1" },
+                    React.createElement("span", { className: "font-display font-extrabold text-[15px] block leading-tight" }, r.name),
+                    React.createElement("span", { className: "text-[11.5px] text-slate-500" },
+                        r.team ? r.team : "No team",
+                        " \u00B7 ",
+                        r.spenders,
+                        " spender",
+                        r.spenders === 1 ? "" : "s",
+                        " \u00B7 ",
+                        r.activeFans,
+                        " active fans")),
+                r.byDay.length > 1 && (React.createElement("span", { className: "hidden sm:block w-28" },
+                    React.createElement(Spark, { points: r.byDay.map((d) => ({ v: d.total, label: d.date })), color: r.direction === "down" ? "#DE2A3C" : "#EC2A86", height: 28, fmtVal: fmt0 }))),
+                React.createElement("span", { className: "text-right" },
+                    React.createElement("span", { className: "font-display font-extrabold text-lg tabular block leading-none" }, fmt(r.total)),
+                    React.createElement("span", { className: `text-[11.5px] font-bold ${tone(r.change)}` }, r.change == null ? "first report" : `${arrow(r.change)} ${Math.abs(r.change).toFixed(0)}%`))),
+            open === r.name && (React.createElement("div", { className: "ss-reveal mt-3 pt-3 border-t border-pink-100 space-y-3" },
+                React.createElement("div", { className: "grid grid-cols-3 sm:grid-cols-5 gap-x-3 gap-y-3" }, [
+                    [fmt0(r.message), "messages", r.msgChange],
+                    [fmt0(r.tips), "tips"],
+                    [fmt0(r.subs), "subscriptions"],
+                    [r.newSubs, "new subs"],
+                    [`${r.renewPct.toFixed(0)}%`, "renew on"],
+                    [r.fanChange == null ? r.activeFans : `${r.activeFans} (${r.fanChange >= 0 ? "+" : ""}${r.fanChange})`, "active fans"],
+                    [fmt0(r.avgSpend), "per spender"],
+                    [r.replyMin ? `${r.replyMin.toFixed(0)} min` : "—", "reply time"],
+                    [r.ppvPerMsg == null ? "—" : `${r.ppvPerMsg.toFixed(1)}%`, "PPV per msg"],
+                    [fmt0(r.weeklyEq), "weekly pace"],
+                ].map(([v, label, ch]) => (React.createElement("div", { key: label, className: "min-w-0" },
+                    React.createElement("p", { className: "font-display text-[15px] font-extrabold tabular leading-none" },
+                        v,
+                        ch != null && React.createElement("span", { className: `text-[10px] ml-1 ${tone(ch)}` },
+                            arrow(ch),
+                            Math.abs(ch).toFixed(0),
+                            "%")),
+                    React.createElement("p", { className: "text-[10px] font-semibold uppercase tracking-[.06em] text-slate-400 mt-1 truncate" }, label))))),
+                r.wins.map((w, i) => (React.createElement("p", { key: "w" + i, className: "rounded-lg bg-emerald-50 border border-emerald-100 px-3 py-2 text-[13px]" }, w))),
+                r.tips.map((tp, i) => (React.createElement("p", { key: "t" + i, className: "rounded-lg bg-amber-50 border border-amber-100 px-3 py-2 text-[13px]" },
+                    React.createElement("b", null,
+                        tp.t,
+                        ":"),
+                    " ",
+                    tp.b))),
+                React.createElement("label", { className: "flex items-center gap-2 text-[12px] text-slate-600" },
+                    "Chat team",
+                    React.createElement("select", { className: inputCls, style: { width: "auto" }, value: r.team, onChange: (e) => setSettings((s) => ({ ...s, creatorTeams: { ...(s.creatorTeams || {}), [r.name]: e.target.value } })) },
+                        React.createElement("option", { value: "" }, "\u2014 none \u2014"),
+                        TEAM_DEFS.map((tm) => (React.createElement("option", { key: tm.team, value: tm.team },
+                            tm.emoji,
+                            " ",
+                            tm.team)))))))))))));
 }
 // a chatter's pay, the short way, for the send-out deck
 function StubSummary({ emp, calc, settings }) {
@@ -1129,7 +1480,8 @@ function SendOutView({ employees, settings, prizes, invoices, onMarkPaid, onUnpa
                         invCur.status === "draft" ? (React.createElement("button", { onClick: () => onMarkInvoice(invCur.id, { status: "sent" }), className: "ss-btn ss-btn-ghost justify-center" }, "Mark sent")) : invCur.status === "paid" ? (React.createElement("button", { onClick: () => onMarkInvoice(invCur.id, { status: "sent", paidDate: "", paidMethod: "" }), className: "ss-btn ss-btn-ghost justify-center" }, "Undo paid")) : (React.createElement("button", { onClick: () => setInvFocus(null), className: "ss-btn ss-btn-ghost justify-center" }, "Close")))))))));
 }
 // ---------- Invoices: create, edit, preview ----------
-function InvoicesView({ invoices, settings, modelNames, modelReport, onCreate, onUpdate, onRemove, onPdf, canEditRules }) {
+function InvoicesView({ invoices, settings, modelNames, modelReport, onCreate, onUpdate, onRemove, onPdf, onInvoiceAll, canEditRules }) {
+    const latestRep = latestCreatorReport(settings);
     const [sel, setSel] = useState(invoices[0] ? invoices[0].id : null);
     const [filter, setFilter] = useState("");
     const [newModel, setNewModel] = useState("");
@@ -1166,6 +1518,24 @@ function InvoicesView({ invoices, settings, modelNames, modelReport, onCreate, o
                     "Models with sales this week prefill their OnlyFans and Fansly lines at ",
                     num(settings.invoiceRate) || 25,
                     "%."),
+                latestRep && (React.createElement("div", { className: "mt-3 pt-3 border-t border-pink-100" },
+                    React.createElement("p", { className: "ss-eyebrow mb-1.5" }, "From the creator report"),
+                    React.createElement("p", { className: "text-[11.5px] text-slate-600 mb-2" },
+                        periodLabel(latestRep),
+                        " \u00B7 ",
+                        latestRep.creators.length,
+                        " models"),
+                    React.createElement("button", { onClick: () => onInvoiceAll(latestRep), className: "ss-btn ss-btn-dark w-full justify-center py-1.5" },
+                        "Draft all ",
+                        latestRep.creators.length),
+                    React.createElement("div", { className: "mt-2 grid grid-cols-2 gap-1" }, latestRep.creators.map((c) => (React.createElement("button", { key: c.name, onClick: () => {
+                            const id = onCreate(c.name, { of: invoiceBaseFor(settings, c.total), fansly: 0, period: periodLabel(latestRep) });
+                            setSel(id);
+                        }, className: "ss-row text-left rounded-lg border border-pink-100 bg-white/70 px-2 py-1 text-[12px] hover:border-pink-400" },
+                        React.createElement("b", { className: "block truncate" }, c.name),
+                        React.createElement("small", { className: "text-slate-500 tabular" },
+                            fmt0(c.total),
+                            " net"))))))),
                 bankMissing && canEditRules && (React.createElement("p", { className: "text-[11px] text-amber-700 mt-2" }, "Add your bank details under Settings \u203A Invoices so they print on every invoice."))),
             React.createElement("div", { className: "ss-card ss-in ss-d1 p-2" },
                 React.createElement("div", { className: "flex gap-1 p-1" }, [["", "All"], ["draft", "Draft"], ["sent", "Sent"], ["paid", "Paid"]].map(([k, label]) => (React.createElement("button", { key: k || "all", onClick: () => setFilter(k), className: `flex-1 rounded-lg px-2 py-1 text-[11.5px] font-bold ${filter === k ? "bg-slate-900 text-white" : "text-slate-500 hover:bg-pink-50"}` }, label)))),
@@ -3855,6 +4225,7 @@ const SETTINGS_SECTIONS = [
     { id: "rates", label: "Pay rates" },
     { id: "goals", label: "Goals & targets" },
     { id: "roster", label: "Roster" },
+    { id: "models", label: "Models" },
     { id: "rules", label: "Strikes & prizes" },
     { id: "data", label: "Data" },
     { id: "features", label: "Features" },
@@ -3981,9 +4352,15 @@ function buildGoalPlan(employees, settings, history) {
     if (mr)
         mr.rows.forEach((r) => r.name !== "Unattributed" && modelNames.add(r.name));
     hist.forEach((h) => h.models && Object.keys(h.models).forEach((m) => m !== "Unattributed" && modelNames.add(m)));
+    const creatorRep = latestCreatorReport(settings);
+    if (creatorRep)
+        creatorRep.creators.forEach((c) => modelNames.add(c.name));
     const models = [...modelNames].map((model) => {
         const row = mr && mr.rows.find((r) => r.name === model);
-        const series = hist.map((h) => (h.models && h.models[model] ? num(h.models[model].rev) : 0));
+        // Infloww creator reports (net, 14-day) become weekly-equivalent points first;
+        // the chatter-attributed weeks follow — the newest point weighs most
+        const fromReports = creatorWeeklySeries(settings, model).filter((v) => v > 0);
+        const series = fromReports.concat(hist.map((h) => (h.models && h.models[model] ? num(h.models[model].rev) : 0)));
         series.push(row ? row.revenue : 0);
         const current = { weekly: modelGoalFor(settings, model, "weekly"), monthly: modelGoalFor(settings, model, "monthly") };
         return { model, current, thisWeek: row ? row.revenue : 0, rec: recommendGoal(series, current.weekly) };
@@ -4636,6 +5013,11 @@ function AppStyles() {
       .ss-in { animation-duration: .7s; }
       @keyframes ss-fade-up { from { opacity:0; transform: translateY(14px) scale(.985);} to { opacity:1; transform:none; } }
 
+      .ss-menu { position: absolute; right: 0; top: calc(100% + 6px); z-index: 70; min-width: 260px; padding: 6px; border-radius: 14px; background: rgba(255,255,255,.92); border: 1px solid var(--edge); box-shadow: 0 18px 44px -18px rgba(28,17,38,.45); backdrop-filter: blur(var(--blur)); -webkit-backdrop-filter: blur(var(--blur)); }
+      .ss-menu button { display: block; width: 100%; text-align: left; padding: 9px 11px; border-radius: 10px; }
+      .ss-menu button:not(:disabled):hover { background: rgba(236,42,134,.09); transform: none; }
+      .ss-menu b { display: block; font-size: 13px; }
+      .ss-menu small { display: block; font-size: 11px; color: var(--ink-3); }
       /* ---------- send-out decks ---------- */
       .ss-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; font-size: 11.5px; font-weight: 700; background: rgba(28,17,38,.07); color: var(--ink-2); }
       .ss-chip.is-mint, .ss-chip.is-paid { background: rgba(30,158,115,.14); color: #13674C; }
@@ -5656,6 +6038,9 @@ function PaystubApp({ sb = null, me = null, onSignOut = null } = {}) {
     const [showLanding, setShowLanding] = useState(true);
     const [importPreview, setImportPreview] = useState(null); // {shifts, sheetName, skipped, fileName}
     const [importError, setImportError] = useState("");
+    const [creatorPreview, setCreatorPreview] = useState(null); // parsed creator report awaiting confirm
+    const [importMenu, setImportMenu] = useState(false);
+    const importKindRef = useRef("chatters");
     const [importNotice, setImportNotice] = useState("");
     const fileRef = useRef(null);
     const wbRef = useRef(null);
@@ -5695,6 +6080,17 @@ function PaystubApp({ sb = null, me = null, onSignOut = null } = {}) {
             const buf = await file.arrayBuffer();
             const wb = XLSX.read(buf, { type: "array" });
             wbRef.current = wb;
+            const creatorRep = parseCreatorWorkbook(wb);
+            if (creatorRep && creatorRep.creators.length) {
+                if (importKindRef.current === "chatters")
+                    setImportNotice("That file is a creator report, so it was read as one.");
+                setCreatorPreview({ ...creatorRep, fileName: file.name });
+                return;
+            }
+            if (importKindRef.current === "creators") {
+                setImportError("That doesn't look like the creator statistics export — it needs a Creator column and Total earnings Net.");
+                return;
+            }
             const parsed = parseInflowwWorkbook(wb, hoursSource);
             if (!parsed.shifts.length) {
                 setImportError("No shift rows found. Check that the file is the weekly stats export with an Employees column and Sales / Clocked hours columns.");
@@ -5723,8 +6119,20 @@ function PaystubApp({ sb = null, me = null, onSignOut = null } = {}) {
             names.forEach((name) => {
                 const roster = rosterLookup(name);
                 const team = (roster && roster.team) || matchTeam(byName[name][0].group);
-                const shifts = byName[name]
-                    .sort((a, b) => (a.date < b.date ? -1 : 1))
+                const sorted = byName[name].sort((a, b) => (a.date < b.date ? -1 : 1));
+                // sales logged with 0 clocked hours belong to the shift worked just before
+                const merged = [];
+                sorted.forEach((s) => {
+                    const prevS = merged[merged.length - 1];
+                    if (num(s.hours) === 0 && num(s.revenue) > 0 && prevS) {
+                        ["revenue", "ppvSent", "msgsSent", "ppvUnlocked", "fansChatted", "mpHours"].forEach((k) => (prevS[k] = round2(num(prevS[k]) + num(s[k]))));
+                        if (s.creators && !String(prevS.creators || "").includes(s.creators))
+                            prevS.creators = [prevS.creators, s.creators].filter(Boolean).join(",");
+                        return;
+                    }
+                    merged.push({ ...s });
+                });
+                const shifts = merged
                     .map((s) => ({
                     id: uid(),
                     date: s.date,
@@ -6580,6 +6988,50 @@ function PaystubApp({ sb = null, me = null, onSignOut = null } = {}) {
             .then((ok) => ok && setSaveMsg(`${inv.number} for ${inv.model || "model"} saved.`))
             .catch((err) => setSaveMsg("Couldn't save: " + (err && err.message ? err.message : err)));
     };
+    const draftInvoicesFor = (rep, s) => {
+        const have = new Set((s.modelInvoices || []).filter((i) => i.payPeriod === periodLabel(rep)).map((i) => i.model.toLowerCase()));
+        let nextNo = Math.max(1, Math.round(num(s.invoiceNext)) || 1);
+        const made = [];
+        rep.creators.forEach((c) => {
+            if (have.has(c.name.toLowerCase()) || c.total <= 0)
+                return;
+            const inv = newInvoice({ ...s, invoiceNext: nextNo }, c.name, null);
+            inv.payPeriod = periodLabel(rep);
+            inv.lines = [newInvoiceLine("OnlyFans", periodLabel(rep), invoiceBaseFor(s, c.total), num(s.invoiceRate) || 25)];
+            made.push(inv);
+            nextNo += 1;
+        });
+        return { made, nextNo };
+    };
+    const invoiceAllFromReport = (rep) => {
+        let count = 0;
+        setSettings((s) => {
+            const { made, nextNo } = draftInvoicesFor(rep, s);
+            count = made.length;
+            return { ...s, modelInvoices: [...made, ...(s.modelInvoices || [])], invoiceNext: nextNo };
+        });
+        setTimeout(() => setSaveMsg(count ? `${count} draft invoice${count === 1 ? "" : "s"} created — see Invoices.` : "Every model on that report already has an invoice."), 0);
+    };
+    const confirmCreatorImport = (teams, draft) => {
+        const rep = creatorPreview;
+        if (!rep)
+            return;
+        pushUndo("import creator report " + rep.period);
+        const { fileName, ...clean } = rep;
+        setSettings((s) => {
+            const reports = (s.creatorReports || []).filter((r) => r.period !== clean.period).concat([clean]).sort((a, b) => (a.start < b.start ? -1 : 1)).slice(-12);
+            let next = { ...s, creatorReports: reports, creatorTeams: { ...(s.creatorTeams || {}), ...teams } };
+            if (draft) {
+                const { made, nextNo } = draftInvoicesFor(clean, next);
+                next = { ...next, modelInvoices: [...made, ...(next.modelInvoices || [])], invoiceNext: nextNo };
+            }
+            return next;
+        });
+        setCreatorPreview(null);
+        if (fileRef.current)
+            fileRef.current.value = "";
+        setImportNotice(`Creator report ${periodLabel(rep)} saved — ${rep.creators.length} models. Trends are on Insights › Models.`);
+    };
     const markEmployeePaid = (id, method) => setEmployees((list) => list.map((e) => (e.id === id ? { ...e, paid: true, paidMethod: method || e.paidMethod || "", paidDate: todayStr(settings) } : e)));
     const unpayEmployee = (id) => setEmployees((list) => list.map((e) => (e.id === id ? { ...e, paid: false, paidDate: "", paidMethod: "" } : e)));
     const stubPdfFor = (e) => {
@@ -6731,7 +7183,7 @@ function PaystubApp({ sb = null, me = null, onSignOut = null } = {}) {
     const insightsTabs = [
         ["insights", "Chatter"],
         ["team", "Team"],
-        ...(features.modelProfitability ? [["models", "Models"]] : []),
+        ...(features.modelProfitability || (settings.creatorReports || []).length ? [["models", "Models"]] : []),
         ...(features.attendance ? [["attendance", "Attendance"]] : []),
     ];
     const insightsTabOn = insightsTabs.some(([k]) => k === insightsTab) ? insightsTab : "insights";
@@ -6763,7 +7215,7 @@ function PaystubApp({ sb = null, me = null, onSignOut = null } = {}) {
         catch (err) { }
     }, [sideMini]);
     const canEditRules = !me || me.role !== "manager";
-    const settingsSections = SETTINGS_SECTIONS.filter((x) => canEditRules || ["goals", "roster", "data"].includes(x.id)).flatMap((x) => x.id === "data" && sb && me && me.role === "owner" ? [{ id: "people", label: "People" }, x] : [x]);
+    const settingsSections = SETTINGS_SECTIONS.filter((x) => canEditRules || ["goals", "roster", "models", "data"].includes(x.id)).flatMap((x) => x.id === "data" && sb && me && me.role === "owner" ? [{ id: "people", label: "People" }, x] : [x]);
     const pageTitle = view === "payroll"
         ? ["Payroll", settings.payPeriod ? `Pay period ${settings.payPeriod}` : "Set the pay period in the first tile"]
         : view === "sendout"
@@ -7034,9 +7486,25 @@ function PaystubApp({ sb = null, me = null, onSignOut = null } = {}) {
                         React.createElement("button", { onClick: () => setShowFanslyPaste(true), className: "ss-btn ss-btn-ghost" },
                             React.createElement(Icon, { name: "paste", size: 16 }),
                             "Paste Fansly"))),
-                    React.createElement("button", { onClick: () => fileRef.current && fileRef.current.click(), className: "ss-btn ss-btn-primary ss-sheen" },
-                        React.createElement(Icon, { name: "import", size: 16 }),
-                        "Import sheet"),
+                    React.createElement("span", { className: "relative" },
+                        React.createElement("button", { onClick: () => setImportMenu((m) => !m), className: "ss-btn ss-btn-primary ss-sheen", "aria-haspopup": "menu", "aria-expanded": importMenu },
+                            React.createElement(Icon, { name: "import", size: 16 }),
+                            "Import"),
+                        importMenu && (React.createElement("div", { role: "menu", className: "ss-menu ss-reveal" },
+                            React.createElement("button", { role: "menuitem", onClick: () => {
+                                    importKindRef.current = "chatters";
+                                    setImportMenu(false);
+                                    fileRef.current && fileRef.current.click();
+                                } },
+                                React.createElement("b", null, "Chatter weekly report"),
+                                React.createElement("small", null, "Infloww employee stats \u2192 shifts, hours, sales")),
+                            React.createElement("button", { role: "menuitem", onClick: () => {
+                                    importKindRef.current = "creators";
+                                    setImportMenu(false);
+                                    fileRef.current && fileRef.current.click();
+                                } },
+                                React.createElement("b", null, "Creator biweekly report"),
+                                React.createElement("small", null, "Infloww creator statistics \u2192 model trends, goals, invoices"))))),
                     view === "payroll" && (React.createElement("span", { className: "hidden md:inline-flex" },
                         React.createElement("button", { onClick: saveAllPdfs, className: "ss-btn ss-btn-dark" },
                             React.createElement(Icon, { name: "save", size: 16 }),
@@ -7132,6 +7600,11 @@ function PaystubApp({ sb = null, me = null, onSignOut = null } = {}) {
                                     setFanslyEdits({});
                                 }, className: "rounded-md border border-pink-200 px-4 py-1.5 text-sm font-medium hover:bg-pink-50" }, "Cancel"),
                             React.createElement("button", { onClick: applyFansly, className: "rounded-md bg-pink-600 hover:bg-pink-700 text-white px-4 py-1.5 text-sm font-semibold" }, "Fill Fansly earnings")))))),
+            creatorPreview && (React.createElement(CreatorImportDialog, { rep: creatorPreview, settings: settings, onCancel: () => {
+                    setCreatorPreview(null);
+                    if (fileRef.current)
+                        fileRef.current.value = "";
+                }, onConfirm: confirmCreatorImport })),
             importPreview && (React.createElement("div", { className: "ss-fade fixed inset-0 z-50 bg-slate-900/60 flex items-center justify-center p-4 print:hidden" },
                 React.createElement("div", { className: "ss-pop bg-white rounded-xl shadow-xl max-w-sm w-full p-5 space-y-4" },
                     React.createElement("div", null,
@@ -7216,7 +7689,7 @@ function PaystubApp({ sb = null, me = null, onSignOut = null } = {}) {
                                     React.createElement("span", { className: "font-semibold" }, c.who),
                                     " \u2014 ",
                                     c.text)))))))))),
-                    view === "sendout" ? (React.createElement(SendOutView, { employees: employees, settings: settings, prizes: prizes, invoices: modelInvoices, onMarkPaid: markEmployeePaid, onUnpay: unpayEmployee, onMarkInvoice: updateModelInvoice, onStubPdf: stubPdfFor, onStubPng: stubPngFor, onInvoicePdf: invoicePdf, onAllPdfs: saveAllPdfs, canPng: true })) : view === "invoices" ? (React.createElement(InvoicesView, { invoices: modelInvoices, settings: settings, modelNames: modelNames, modelReport: invModelRows, onCreate: createInvoice, onUpdate: updateModelInvoice, onRemove: removeModelInvoice, onPdf: invoicePdf, canEditRules: canEditRules })) : view === "settings" ? (React.createElement("div", { className: "max-w-7xl mx-auto lg:grid lg:grid-cols-[190px_minmax(0,1fr)] lg:gap-6 items-start" },
+                    view === "sendout" ? (React.createElement(SendOutView, { employees: employees, settings: settings, prizes: prizes, invoices: modelInvoices, onMarkPaid: markEmployeePaid, onUnpay: unpayEmployee, onMarkInvoice: updateModelInvoice, onStubPdf: stubPdfFor, onStubPng: stubPngFor, onInvoicePdf: invoicePdf, onAllPdfs: saveAllPdfs, canPng: true })) : view === "invoices" ? (React.createElement(InvoicesView, { invoices: modelInvoices, settings: settings, modelNames: modelNames, modelReport: invModelRows, onCreate: createInvoice, onUpdate: updateModelInvoice, onRemove: removeModelInvoice, onPdf: invoicePdf, onInvoiceAll: invoiceAllFromReport, canEditRules: canEditRules })) : view === "settings" ? (React.createElement("div", { className: "max-w-7xl mx-auto lg:grid lg:grid-cols-[190px_minmax(0,1fr)] lg:gap-6 items-start" },
                         React.createElement("aside", { className: "lg:sticky lg:top-24 mb-5 lg:mb-0 ss-card p-2" },
                             React.createElement("p", { className: "ss-eyebrow px-3 pt-2 pb-1.5" }, "On this page"),
                             React.createElement("nav", { className: "flex lg:flex-col flex-wrap gap-0.5" }, settingsSections.map((s) => (React.createElement("a", { key: s.id, href: "#set-" + s.id, onClick: (e) => {
@@ -7278,7 +7751,14 @@ function PaystubApp({ sb = null, me = null, onSignOut = null } = {}) {
                                         React.createElement(Field, { label: "Default rate (%)" },
                                             React.createElement("input", { type: "number", min: "0", max: "100", step: "0.5", className: inputCls, value: settings.invoiceRate, onChange: (e) => setSettings((s) => ({ ...s, invoiceRate: e.target.value })) })),
                                         React.createElement(Field, { label: "Due in (days)" },
-                                            React.createElement("input", { type: "number", min: "0", step: "1", className: inputCls, value: settings.invoiceTermsDays, onChange: (e) => setSettings((s) => ({ ...s, invoiceTermsDays: e.target.value })) }))),
+                                            React.createElement("input", { type: "number", min: "0", step: "1", className: inputCls, value: settings.invoiceTermsDays, onChange: (e) => setSettings((s) => ({ ...s, invoiceTermsDays: e.target.value })) })),
+                                        React.createElement(Field, { label: "Rate applies to" },
+                                            React.createElement("select", { className: inputCls, value: settings.invoiceBase || "net", onChange: (e) => setSettings((s) => ({ ...s, invoiceBase: e.target.value })) },
+                                                React.createElement("option", { value: "net" }, "Net earnings (as Infloww reports)"),
+                                                React.createElement("option", { value: "gross" },
+                                                    "Gross (net \u00F7 ",
+                                                    100 - num(settings.ofCut),
+                                                    "%)")))),
                                     React.createElement("p", { className: "text-[11px] text-slate-500 mt-3" }, "Bank details are stored with your settings and sync to your other devices through your private backend. Managers never see this section."))),
                                 canEditRules && (React.createElement("section", { id: "set-rates", className: "ss-card p-5 scroll-mt-24" },
                                     React.createElement("h3", { className: "font-display text-base font-extrabold text-slate-900 mb-0.5" }, "Pay rates & targets"),
@@ -7399,6 +7879,25 @@ function PaystubApp({ sb = null, me = null, onSignOut = null } = {}) {
                                     features.teamGoals && (React.createElement("div", null,
                                         React.createElement("p", { className: "ss-eyebrow mb-2" }, "Model sales goals"),
                                         goalPlan.models.length === 0 ? (React.createElement("p", { className: "text-sm text-slate-500" }, "Models appear here once an import includes the Creators column.")) : (React.createElement("div", { className: "space-y-2 ss-stagger" }, goalPlan.models.map((m) => (React.createElement(GoalRow, { key: m.model, label: m.model, thisWeek: m.thisWeek, weekly: m.current.weekly, monthly: m.current.monthly, onChange: (kind, v) => setModelGoal(m.model, kind, v), rec: m.rec, showRec: showRec, onUse: () => applyModelGoalRec(m.model, m.rec) }))))))))),
+                                React.createElement("section", { id: "set-models", className: "ss-card p-5 scroll-mt-24" },
+                                    React.createElement("h3", { className: "font-display text-base font-extrabold text-slate-900 mb-0.5" }, "Models \u2192 chat teams"),
+                                    React.createElement("p", { className: "text-xs text-slate-500 mb-3" }, "Which team runs each creator account. Used for team roll-ups on the creator reports and goal recommendations."),
+                                    (() => {
+                                        const names = new Set(Object.keys(settings.creatorTeams || {}));
+                                        (settings.creatorReports || []).forEach((r) => r.creators.forEach((c) => names.add(c.name)));
+                                        modelNames.forEach((m) => names.add(m));
+                                        const list = [...names].sort();
+                                        if (!list.length)
+                                            return React.createElement("p", { className: "text-sm text-slate-500" }, "No models yet \u2014 import a creator report or tag shifts with a model.");
+                                        return (React.createElement("div", { className: "grid sm:grid-cols-2 lg:grid-cols-3 gap-2" }, list.map((m) => (React.createElement("label", { key: m, className: "flex items-center gap-2 text-sm rounded-lg bg-white/70 border border-pink-100 px-3 py-1.5" },
+                                            React.createElement("span", { className: "font-semibold flex-1 truncate" }, m),
+                                            React.createElement("select", { className: inputCls, style: { width: "auto" }, value: creatorTeamOf(settings, m), onChange: (e) => setSettings((s) => ({ ...s, creatorTeams: { ...(s.creatorTeams || {}), [m]: e.target.value } })) },
+                                                React.createElement("option", { value: "" }, "\u2014 none \u2014"),
+                                                TEAM_DEFS.map((t) => (React.createElement("option", { key: t.team, value: t.team },
+                                                    t.emoji,
+                                                    " ",
+                                                    t.team.replace("Team ", ""))))))))));
+                                    })()),
                                 features.editableRoster && (React.createElement("section", { id: "set-roster", className: "ss-card p-5 scroll-mt-24" },
                                     React.createElement("div", { className: "flex flex-wrap items-center justify-between gap-2 mb-2" },
                                         React.createElement("div", null,
@@ -8680,66 +9179,71 @@ function PaystubApp({ sb = null, me = null, onSignOut = null } = {}) {
                                                             x.hours,
                                                             "h",
                                                             x.short ? ` · ${x.short} short` : ""))));
-                                            }))))))) : rightTab === "models" && features.modelProfitability ? (React.createElement("div", { key: "models", className: "ss-in ss-card p-5 space-y-4" },
-                                    React.createElement("div", null,
-                                        React.createElement("p", { className: "ss-eyebrow" }, "Model profitability"),
-                                        React.createElement("h3", { className: "font-display text-2xl font-extrabold text-slate-900 leading-none mt-1" }, "Model performance"),
-                                        React.createElement("p", { className: "text-xs text-slate-500 mt-1.5" }, "Which accounts earn best per chatter-hour")),
-                                    !modelReport ? (React.createElement("p", { className: "text-sm text-slate-500" }, "No model data yet \u2014 import the weekly sheet. The Creators column is what this reads.")) : (React.createElement(React.Fragment, null,
-                                        React.createElement("ul", { className: "ss-stagger space-y-1.5" }, modelReport.rows.map((r, i) => (React.createElement("li", { key: r.name, className: `rounded-lg border px-3 py-2 ${i === 0
-                                                ? "bg-pink-50 border-pink-200"
-                                                : "bg-white border-pink-100"}` },
-                                            React.createElement("div", { className: "flex items-center justify-between text-sm" },
-                                                React.createElement("span", { className: "font-semibold text-slate-900" },
-                                                    React.createElement("span", { className: `inline-block w-5 ${i === 0 ? "text-pink-600" : "text-slate-400"}` },
-                                                        i + 1,
-                                                        "."),
-                                                    r.name),
-                                                React.createElement("span", { className: "font-bold tabular text-rose-600" }, fmt(r.revenue))),
-                                            React.createElement("p", { className: "text-[11px] text-slate-500 mt-0.5 pl-5 tabular" },
-                                                fmt(r.rph),
-                                                "/hr \u00B7 ",
-                                                round2(r.hours),
-                                                "h \u00B7 ",
-                                                r.chatterCount,
-                                                " ",
-                                                "chatter",
-                                                r.chatterCount === 1 ? "" : "s",
-                                                " \u00B7",
-                                                " ",
-                                                ((r.revenue / modelReport.totalRev) * 100).toFixed(0),
-                                                "% of revenue",
-                                                features.teamGoals && modelGoalFor(settings, r.name, "weekly") > 0 && (React.createElement("span", { className: r.revenue >= modelGoalFor(settings, r.name, "weekly") ? " text-emerald-700 font-bold" : "" },
+                                            }))))))) : rightTab === "models" && (features.modelProfitability || (settings.creatorReports || []).length) ? (React.createElement("div", { key: "models", className: "space-y-4" },
+                                    React.createElement(CreatorTrendsPanel, { settings: settings, setSettings: setSettings, onCopy: (txt) => { try {
+                                            navigator.clipboard.writeText(txt);
+                                        }
+                                        catch (err) { } setCopyMsg("Creator summary copied."); }, onInvoiceAll: invoiceAllFromReport }),
+                                    features.modelProfitability && (React.createElement("div", { className: "ss-in ss-card p-5 space-y-4" },
+                                        React.createElement("div", null,
+                                            React.createElement("p", { className: "ss-eyebrow" }, "Model profitability"),
+                                            React.createElement("h3", { className: "font-display text-2xl font-extrabold text-slate-900 leading-none mt-1" }, "Model performance"),
+                                            React.createElement("p", { className: "text-xs text-slate-500 mt-1.5" }, "Which accounts earn best per chatter-hour")),
+                                        !modelReport ? (React.createElement("p", { className: "text-sm text-slate-500" }, "No model data yet \u2014 import the weekly sheet. The Creators column is what this reads.")) : (React.createElement(React.Fragment, null,
+                                            React.createElement("ul", { className: "ss-stagger space-y-1.5" }, modelReport.rows.map((r, i) => (React.createElement("li", { key: r.name, className: `rounded-lg border px-3 py-2 ${i === 0
+                                                    ? "bg-pink-50 border-pink-200"
+                                                    : "bg-white border-pink-100"}` },
+                                                React.createElement("div", { className: "flex items-center justify-between text-sm" },
+                                                    React.createElement("span", { className: "font-semibold text-slate-900" },
+                                                        React.createElement("span", { className: `inline-block w-5 ${i === 0 ? "text-pink-600" : "text-slate-400"}` },
+                                                            i + 1,
+                                                            "."),
+                                                        r.name),
+                                                    React.createElement("span", { className: "font-bold tabular text-rose-600" }, fmt(r.revenue))),
+                                                React.createElement("p", { className: "text-[11px] text-slate-500 mt-0.5 pl-5 tabular" },
+                                                    fmt(r.rph),
+                                                    "/hr \u00B7 ",
+                                                    round2(r.hours),
+                                                    "h \u00B7 ",
+                                                    r.chatterCount,
                                                     " ",
-                                                    "\u00B7 ",
-                                                    Math.round((r.revenue / modelGoalFor(settings, r.name, "weekly")) * 100),
-                                                    "% of ",
-                                                    fmt0(modelGoalFor(settings, r.name, "weekly")),
-                                                    " goal"))),
-                                            React.createElement("div", { className: "h-1.5 mt-1.5 ml-5 rounded-full bg-pink-50 overflow-hidden" },
-                                                React.createElement("div", { className: `ss-bar h-full ${features.teamGoals && modelGoalFor(settings, r.name, "weekly") > 0
-                                                        ? r.revenue >= modelGoalFor(settings, r.name, "weekly") ? "bg-emerald-500" : "bg-pink-500"
-                                                        : "bg-pink-400"}`, style: {
-                                                        width: Math.max(2, features.teamGoals && modelGoalFor(settings, r.name, "weekly") > 0
-                                                            ? Math.min(100, (r.revenue / modelGoalFor(settings, r.name, "weekly")) * 100)
-                                                            : (r.revenue / modelReport.rows[0].revenue) * 100) + "%",
-                                                    } })),
-                                            features.teamGoals && r.name !== "Unattributed" && (React.createElement("div", { className: "mt-2 ml-5 flex flex-wrap items-end gap-2" },
-                                                React.createElement("label", { className: "block w-28" },
-                                                    React.createElement("span", { className: "block text-[10px] font-bold uppercase tracking-[.08em] text-slate-400 mb-1" }, "Weekly goal"),
-                                                    React.createElement("input", { type: "number", step: "100", min: "0", className: inputCls, value: modelGoalFor(settings, r.name, "weekly") || "", placeholder: "0", onChange: (e) => setModelGoal(r.name, "weekly", e.target.value) })),
-                                                React.createElement("label", { className: "block w-28" },
-                                                    React.createElement("span", { className: "block text-[10px] font-bold uppercase tracking-[.08em] text-slate-400 mb-1" }, "Monthly goal"),
-                                                    React.createElement("input", { type: "number", step: "500", min: "0", className: inputCls, value: modelGoalFor(settings, r.name, "monthly") || "", placeholder: "0", onChange: (e) => setModelGoal(r.name, "monthly", e.target.value) })),
-                                                showRec &&
-                                                    (() => {
-                                                        const m = goalPlan.models.find((x) => x.model === r.name);
-                                                        return m && m.rec ? (React.createElement("div", { className: "flex-1 min-w-[200px]" },
-                                                            React.createElement(SuggestChip, { rec: m.rec, current: m.current, onUse: () => applyModelGoalRec(m.model, m.rec), compact: true }))) : null;
-                                                    })())))))),
-                                        React.createElement("p", { className: "text-[10px] text-slate-400" }, modelReport.split
-                                            ? "Some shifts covered several models at once. The export doesn't split revenue by model within a shift, so those shifts are shared evenly — treat per-model figures as estimates, not exact."
-                                            : "Each shift covered a single model, so these figures are exact."))))) : rightTab === "board" ? (React.createElement("div", { key: "board", className: "ss-in ss-card p-5 space-y-5" },
+                                                    "chatter",
+                                                    r.chatterCount === 1 ? "" : "s",
+                                                    " \u00B7",
+                                                    " ",
+                                                    ((r.revenue / modelReport.totalRev) * 100).toFixed(0),
+                                                    "% of revenue",
+                                                    features.teamGoals && modelGoalFor(settings, r.name, "weekly") > 0 && (React.createElement("span", { className: r.revenue >= modelGoalFor(settings, r.name, "weekly") ? " text-emerald-700 font-bold" : "" },
+                                                        " ",
+                                                        "\u00B7 ",
+                                                        Math.round((r.revenue / modelGoalFor(settings, r.name, "weekly")) * 100),
+                                                        "% of ",
+                                                        fmt0(modelGoalFor(settings, r.name, "weekly")),
+                                                        " goal"))),
+                                                React.createElement("div", { className: "h-1.5 mt-1.5 ml-5 rounded-full bg-pink-50 overflow-hidden" },
+                                                    React.createElement("div", { className: `ss-bar h-full ${features.teamGoals && modelGoalFor(settings, r.name, "weekly") > 0
+                                                            ? r.revenue >= modelGoalFor(settings, r.name, "weekly") ? "bg-emerald-500" : "bg-pink-500"
+                                                            : "bg-pink-400"}`, style: {
+                                                            width: Math.max(2, features.teamGoals && modelGoalFor(settings, r.name, "weekly") > 0
+                                                                ? Math.min(100, (r.revenue / modelGoalFor(settings, r.name, "weekly")) * 100)
+                                                                : (r.revenue / modelReport.rows[0].revenue) * 100) + "%",
+                                                        } })),
+                                                features.teamGoals && r.name !== "Unattributed" && (React.createElement("div", { className: "mt-2 ml-5 flex flex-wrap items-end gap-2" },
+                                                    React.createElement("label", { className: "block w-28" },
+                                                        React.createElement("span", { className: "block text-[10px] font-bold uppercase tracking-[.08em] text-slate-400 mb-1" }, "Weekly goal"),
+                                                        React.createElement("input", { type: "number", step: "100", min: "0", className: inputCls, value: modelGoalFor(settings, r.name, "weekly") || "", placeholder: "0", onChange: (e) => setModelGoal(r.name, "weekly", e.target.value) })),
+                                                    React.createElement("label", { className: "block w-28" },
+                                                        React.createElement("span", { className: "block text-[10px] font-bold uppercase tracking-[.08em] text-slate-400 mb-1" }, "Monthly goal"),
+                                                        React.createElement("input", { type: "number", step: "500", min: "0", className: inputCls, value: modelGoalFor(settings, r.name, "monthly") || "", placeholder: "0", onChange: (e) => setModelGoal(r.name, "monthly", e.target.value) })),
+                                                    showRec &&
+                                                        (() => {
+                                                            const m = goalPlan.models.find((x) => x.model === r.name);
+                                                            return m && m.rec ? (React.createElement("div", { className: "flex-1 min-w-[200px]" },
+                                                                React.createElement(SuggestChip, { rec: m.rec, current: m.current, onUse: () => applyModelGoalRec(m.model, m.rec), compact: true }))) : null;
+                                                        })())))))),
+                                            React.createElement("p", { className: "text-[10px] text-slate-400" }, modelReport.split
+                                                ? "Some shifts covered several models at once. The export doesn't split revenue by model within a shift, so those shifts are shared evenly — treat per-model figures as estimates, not exact."
+                                                : "Each shift covered a single model, so these figures are exact."))))))) : rightTab === "board" ? (React.createElement("div", { key: "board", className: "ss-in ss-card p-5 space-y-5" },
                                     React.createElement("div", { className: "flex items-end justify-between gap-3" },
                                         React.createElement("div", null,
                                             React.createElement("h3", { className: "font-display text-2xl font-extrabold text-slate-900 leading-none" }, "Weekly leaderboard"),
