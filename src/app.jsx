@@ -5882,7 +5882,7 @@ function AppStyles() {
       .ss-check.is-done { opacity: .55; }
       .ss-check.is-done .ss-check-text { text-decoration: line-through; text-decoration-color: rgba(28,17,38,.35); }
       html[data-mode="dark"] .ss-check { background: rgba(255,255,255,.06); border-color: rgba(255,255,255,.1); }
-      .ss-menu { position: absolute; right: 0; top: calc(100% + 6px); z-index: 70; min-width: 260px; padding: 6px; border-radius: 14px; background: rgba(255,255,255,.92); border: 1px solid var(--edge); box-shadow: 0 18px 44px -18px rgba(28,17,38,.45); backdrop-filter: blur(var(--blur)); -webkit-backdrop-filter: blur(var(--blur)); }
+      .ss-menu { position: absolute; right: 0; top: calc(100% + 6px); z-index: 70; min-width: 260px; padding: 6px; border-radius: 14px; background: #FFFFFF; border: 1px solid var(--edge); box-shadow: 0 18px 44px -18px rgba(28,17,38,.45); backdrop-filter: blur(var(--blur)); -webkit-backdrop-filter: blur(var(--blur)); }
       .ss-menu button { display: block; width: 100%; text-align: left; padding: 9px 11px; border-radius: 10px; }
       .ss-menu button:not(:disabled):hover { background: rgba(236,42,134,.09); transform: none; }
       .ss-menu b { display: block; font-size: 13px; }
@@ -6004,6 +6004,12 @@ function AppStyles() {
       html[data-mode="dark"] .ss-side { background: linear-gradient(180deg, rgba(16,9,22,.92), rgba(8,4,12,.95)); }
       html[data-mode="dark"] .ss-top { box-shadow: none; }
       html[data-mode="dark"] .ss-card, html[data-mode="dark"] .ss-kpi, html[data-mode="dark"] .ss-deck-card, html[data-mode="dark"] .ss-focus, html[data-mode="dark"] .ss-menu { box-shadow: 0 16px 40px -28px rgba(0,0,0,.8), inset 0 1px 0 rgba(255,255,255,.08); }
+      /* menus and pop-up dialogs sit over the page, so they get a solid surface, not glass */
+      html[data-mode="dark"] .ss-menu, html[data-mode="dark"] .ss-pop, html[data-mode="dark"] .ss-pop.bg-white { background: #221830 !important; color: var(--ink); border: 1px solid rgba(255,255,255,.12); }
+      html[data-theme="midnight"] .ss-menu, html[data-theme="midnight"] .ss-pop, html[data-theme="midnight"] .ss-pop.bg-white { background: #17111F !important; }
+      html[data-mode="dark"] .ss-menu b { color: var(--ink); }
+      html[data-mode="dark"] .ss-menu small { color: var(--ink-3); }
+      html[data-mode="dark"] .ss-menu button:not(:disabled):hover { background: rgba(249,111,176,.14); }
       html[data-mode="dark"] .ss-kpi.is-pink { background: linear-gradient(160deg, rgba(236,42,134,.55), rgba(194,21,107,.45)); }
       /* the Tailwind palette the markup uses, remapped for dark glass */
       html[data-mode="dark"] .text-slate-900, html[data-mode="dark"] .text-slate-800 { color: var(--ink) !important; }
