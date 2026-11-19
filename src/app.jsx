@@ -7161,8 +7161,19 @@ export default function PaystubApp({ sb = null, me = null, onSignOut = null } = 
       (byName[s.name] = byName[s.name] || []).push(s);
     });
     const names = Object.keys(byName);
+    const dates = importPreview.shifts.map((s) => s.date).filter(Boolean).sort();
+    const newPeriod = dates.length
+      ? dates[0] === dates[dates.length - 1] ? dates[0] : `${dates[0]} – ${dates[dates.length - 1]}`
+      : settings.payPeriod || "";
+    const unpaidCount = employees.filter((e) => e.paid && e.paidPeriod !== newPeriod).length;
 
     setEmployees((es) => {
+      // a new week starts everyone unpaid: paid status only carries over when this
+      // import is the same pay period the chatter was marked paid for
+      es = es.map((e) => {
+        if (!e.paid || e.paidPeriod === newPeriod) return e;
+        return { ...e, paid: false, paidDate: "", paidPeriod: "" };
+      });
       // drop untouched placeholder employees (default name, no data)
       let next = es.filter(
         (e) =>
@@ -7251,16 +7262,8 @@ export default function PaystubApp({ sb = null, me = null, onSignOut = null } = 
       return [...next];
     });
 
-    // try to set pay period from date range
-    const dates = importPreview.shifts.map((s) => s.date).filter(Boolean).sort();
-    if (dates.length) {
-      setSettings((s) => ({
-        ...s,
-        payPeriod: dates[0] === dates[dates.length - 1]
-          ? dates[0]
-          : `${dates[0]} – ${dates[dates.length - 1]}`,
-      }));
-    }
+    // set pay period from date range
+    if (dates.length) setSettings((s) => ({ ...s, payPeriod: newPeriod }));
     // the most recent stored week becomes what this one is measured against
     if (features.saveBetweenSessions && history.length) {
       setPrevWeek(history[history.length - 1]);
@@ -7278,6 +7281,7 @@ export default function PaystubApp({ sb = null, me = null, onSignOut = null } = 
     }
     setImportNotice(
       `Imported ${importPreview.shifts.length} shifts for ${names.length} chatters from "${importPreview.fileName}". Streaming shifts and bonuses still need to be checked manually.` +
+        (unpaidCount ? ` New pay week: ${unpaidCount} chatter${unpaidCount === 1 ? "" : "s"} reset to unpaid.` : "") +
         tzNote
     );
     setImportPreview(null);
@@ -8234,9 +8238,9 @@ export default function PaystubApp({ sb = null, me = null, onSignOut = null } = 
   };
   const markEmployeePaid = (id, method) =>
     playSfx("paid") ||
-    setEmployees((list) => list.map((e) => (e.id === id ? { ...e, paid: true, paidMethod: method || e.paidMethod || "", paidDate: todayStr(settings) } : e)));
+    setEmployees((list) => list.map((e) => (e.id === id ? { ...e, paid: true, paidMethod: method || e.paidMethod || "", paidDate: todayStr(settings), paidPeriod: settings.payPeriod || "" } : e)));
   const unpayEmployee = (id) =>
-    setEmployees((list) => list.map((e) => (e.id === id ? { ...e, paid: false, paidDate: "", paidMethod: "" } : e)));
+    setEmployees((list) => list.map((e) => (e.id === id ? { ...e, paid: false, paidDate: "", paidMethod: "", paidPeriod: "" } : e)));
   const stubPdfFor = (e) => {
     if (!(window.jspdf && window.jspdf.jsPDF)) return setSaveMsg("PDFs need the downloaded or hosted app.");
     const doc = makePdf(e, settings, todayStr(settings), prizes[e.id]);
@@ -10814,8 +10818,9 @@ export default function PaystubApp({ sb = null, me = null, onSignOut = null } = 
                       updateEmployee(active.id, {
                         paid: e.target.checked,
                         paidDate: e.target.checked
-                          ? active.paidDate || todayStr(settings)
+                          ? (active.paidPeriod === (settings.payPeriod || "") && active.paidDate) || todayStr(settings)
                           : "",
+                        paidPeriod: e.target.checked ? settings.payPeriod || "" : "",
                       })
                     }
                   />
@@ -13018,8 +13023,9 @@ export default function PaystubApp({ sb = null, me = null, onSignOut = null } = 
                               updateEmployee(r.e.id, {
                                 paid: ev.target.checked,
                                 paidDate: ev.target.checked
-                                  ? r.e.paidDate || todayStr(settings)
+                                  ? (r.e.paidPeriod === (settings.payPeriod || "") && r.e.paidDate) || todayStr(settings)
                                   : "",
+                                paidPeriod: ev.target.checked ? settings.payPeriod || "" : "",
                               })
                             }
                           />

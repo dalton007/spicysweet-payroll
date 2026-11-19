@@ -18,7 +18,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 
-<script>window.SPICY_VERSION = "5.3.8";</script>
+<script>window.SPICY_VERSION = "5.3.9";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.1/dist/umd/supabase.js"></script>
 <script>window.SPICY_BACKEND = {"url": "https://ctsbigebqkyggntjevqq.supabase.co", "key": "sb_publishable_2jC3tz_LgP3P-439fIjUMA_P36MN8Q0"};</script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -6823,7 +6823,19 @@ function PaystubApp({ sb = null, me = null, onSignOut = null } = {}) {
             (byName[s.name] = byName[s.name] || []).push(s);
         });
         const names = Object.keys(byName);
+        const dates = importPreview.shifts.map((s) => s.date).filter(Boolean).sort();
+        const newPeriod = dates.length
+            ? dates[0] === dates[dates.length - 1] ? dates[0] : `${dates[0]} – ${dates[dates.length - 1]}`
+            : settings.payPeriod || "";
+        const unpaidCount = employees.filter((e) => e.paid && e.paidPeriod !== newPeriod).length;
         setEmployees((es) => {
+            // a new week starts everyone unpaid: paid status only carries over when this
+            // import is the same pay period the chatter was marked paid for
+            es = es.map((e) => {
+                if (!e.paid || e.paidPeriod === newPeriod)
+                    return e;
+                return { ...e, paid: false, paidDate: "", paidPeriod: "" };
+            });
             // drop untouched placeholder employees (default name, no data)
             let next = es.filter((e) => !(/^Chatter \d+$/.test(e.name) &&
                 e.shifts.every((s) => !s.date && !s.hours && !s.revenue)));
@@ -6905,16 +6917,9 @@ function PaystubApp({ sb = null, me = null, onSignOut = null } = {}) {
             setActiveId(next[0].id);
             return [...next];
         });
-        // try to set pay period from date range
-        const dates = importPreview.shifts.map((s) => s.date).filter(Boolean).sort();
-        if (dates.length) {
-            setSettings((s) => ({
-                ...s,
-                payPeriod: dates[0] === dates[dates.length - 1]
-                    ? dates[0]
-                    : `${dates[0]} – ${dates[dates.length - 1]}`,
-            }));
-        }
+        // set pay period from date range
+        if (dates.length)
+            setSettings((s) => ({ ...s, payPeriod: newPeriod }));
         // the most recent stored week becomes what this one is measured against
         if (features.saveBetweenSessions && history.length) {
             setPrevWeek(history[history.length - 1]);
@@ -6932,6 +6937,7 @@ function PaystubApp({ sb = null, me = null, onSignOut = null } = {}) {
             }
         }
         setImportNotice(`Imported ${importPreview.shifts.length} shifts for ${names.length} chatters from "${importPreview.fileName}". Streaming shifts and bonuses still need to be checked manually.` +
+            (unpaidCount ? ` New pay week: ${unpaidCount} chatter${unpaidCount === 1 ? "" : "s"} reset to unpaid.` : "") +
             tzNote);
         setImportPreview(null);
         if (fileRef.current)
@@ -7778,8 +7784,8 @@ function PaystubApp({ sb = null, me = null, onSignOut = null } = {}) {
         setImportNotice(`Creator report ${periodLabel(rep)} saved — ${rep.creators.length} models. Trends are on Insights › Models.`);
     };
     const markEmployeePaid = (id, method) => playSfx("paid") ||
-        setEmployees((list) => list.map((e) => (e.id === id ? { ...e, paid: true, paidMethod: method || e.paidMethod || "", paidDate: todayStr(settings) } : e)));
-    const unpayEmployee = (id) => setEmployees((list) => list.map((e) => (e.id === id ? { ...e, paid: false, paidDate: "", paidMethod: "" } : e)));
+        setEmployees((list) => list.map((e) => (e.id === id ? { ...e, paid: true, paidMethod: method || e.paidMethod || "", paidDate: todayStr(settings), paidPeriod: settings.payPeriod || "" } : e)));
+    const unpayEmployee = (id) => setEmployees((list) => list.map((e) => (e.id === id ? { ...e, paid: false, paidDate: "", paidMethod: "", paidPeriod: "" } : e)));
     const stubPdfFor = (e) => {
         if (!(window.jspdf && window.jspdf.jsPDF))
             return setSaveMsg("PDFs need the downloaded or hosted app.");
@@ -9071,8 +9077,9 @@ function PaystubApp({ sb = null, me = null, onSignOut = null } = {}) {
                                             React.createElement("input", { type: "checkbox", className: "h-4 w-4 accent-pink-600", checked: !!active.paid, onChange: (e) => updateEmployee(active.id, {
                                                     paid: e.target.checked,
                                                     paidDate: e.target.checked
-                                                        ? active.paidDate || todayStr(settings)
+                                                        ? (active.paidPeriod === (settings.payPeriod || "") && active.paidDate) || todayStr(settings)
                                                         : "",
+                                                    paidPeriod: e.target.checked ? settings.payPeriod || "" : "",
                                                 }) }),
                                             "Paid"),
                                         React.createElement("div", { className: "w-40" },
@@ -10281,8 +10288,9 @@ function PaystubApp({ sb = null, me = null, onSignOut = null } = {}) {
                                                     React.createElement("input", { type: "checkbox", className: "h-4 w-4 accent-pink-600 shrink-0", checked: !!r.e.paid, onChange: (ev) => updateEmployee(r.e.id, {
                                                             paid: ev.target.checked,
                                                             paidDate: ev.target.checked
-                                                                ? r.e.paidDate || todayStr(settings)
+                                                                ? (r.e.paidPeriod === (settings.payPeriod || "") && r.e.paidDate) || todayStr(settings)
                                                                 : "",
+                                                            paidPeriod: ev.target.checked ? settings.payPeriod || "" : "",
                                                         }) }),
                                                     React.createElement("span", { className: `truncate ${r.e.paid ? "text-slate-400 line-through" : "text-slate-700"}` },
                                                         r.e.name,
