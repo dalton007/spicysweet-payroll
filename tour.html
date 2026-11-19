@@ -1,0 +1,603 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Spicy Sweet Payroll — Feature Tour</title>
+<meta name="description" content="Payroll, paystubs, insights and invoices for Spicy Sweet, all in one app.">
+<meta property="og:title" content="Spicy Sweet Payroll — Feature Tour">
+<meta property="og:description" content="Payroll, paystubs, insights and invoices for Spicy Sweet, all in one app.">
+<meta name="theme-color" content="#D81B78">
+<link rel="icon" href="icon-192.png">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#120a18;font-family:Inter,system-ui,sans-serif;color:#F6EEF4}
+a{color:#FF7DB8}a:hover{color:#FFA6CD}
+button{font-family:inherit}
+.ss-nav{appearance:none;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);color:#F6EEF4;border-radius:999px;height:44px;padding:0 20px;font-size:14px;font-weight:600;cursor:pointer;transition:background .2s,transform .2s;display:inline-flex;align-items:center;gap:8px}
+.ss-nav:hover{background:rgba(255,255,255,.12);transform:translateY(-1px)}
+.ss-nav.primary{background:linear-gradient(135deg,#D81B78,#B5125F);border-color:transparent;box-shadow:0 8px 24px rgba(216,27,120,.35)}
+.ss-nav.primary:hover{background:linear-gradient(135deg,#E8248A,#C4166A)}
+.ss-dot{appearance:none;border:0;padding:0;width:44px;height:44px;background:transparent;cursor:pointer;display:inline-flex;align-items:center;justify-content:center}
+.ss-dot span{display:block;width:8px;height:8px;border-radius:99px;background:rgba(255,255,255,.22);transition:all .25s}
+.ss-dot.on span{width:28px;background:#FF4FA3}
+.glass{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:20px;backdrop-filter:blur(10px);box-shadow:0 20px 60px rgba(0,0,0,.35)}
+.rise{animation:rise .7s cubic-bezier(.2,.8,.2,1) both}
+.d1{animation-delay:.12s}.d2{animation-delay:.24s}.d3{animation-delay:.36s}.d4{animation-delay:.48s}.d5{animation-delay:.6s}.d6{animation-delay:.72s}.d7{animation-delay:.84s}.d8{animation-delay:.96s}
+.pop{animation:pop .6s cubic-bezier(.2,.9,.3,1.3) both}
+.grow{transform-origin:left center;animation:grow 1s cubic-bezier(.2,.8,.2,1) both}
+.growv{transform-origin:bottom center;animation:growv 1s cubic-bezier(.2,.8,.2,1) both}
+.tick{animation:tick .4s ease-out both}
+.pulse{animation:pulse 1.6s ease-in-out infinite}
+.float{animation:float 4s ease-in-out infinite}
+.orb{position:absolute;border-radius:50%;filter:blur(70px);opacity:.55;pointer-events:none;animation:drift 14s ease-in-out infinite alternate}
+.draw{stroke-dasharray:600;stroke-dashoffset:600;animation:draw 1.6s .3s ease-out forwards}
+.cycle{animation:cycle 6s ease-in-out infinite}
+.cycletxt{animation:cycletxt 6s ease-in-out infinite}
+.flip{animation:flip 1.2s 1.1s cubic-bezier(.2,.8,.2,1) both}
+.stamp{animation:stamp .5s 1.3s cubic-bezier(.2,.9,.3,1.4) both}
+.sync{animation:sync 2.2s ease-in-out infinite}
+.drop{animation:drop .9s cubic-bezier(.3,1.2,.4,1) both}
+.wave span{display:inline-block;animation:wave 1.4s ease-in-out infinite}
+.wave span:nth-child(2){animation-delay:.15s}.wave span:nth-child(3){animation-delay:.3s}.wave span:nth-child(4){animation-delay:.45s}.wave span:nth-child(5){animation-delay:.6s}
+.kbd{font-size:11px;color:#B8A6C2;border:1px solid rgba(255,255,255,.14);border-radius:6px;padding:2px 6px}
+@keyframes rise{from{opacity:0;transform:translateY(22px)}to{opacity:1;transform:none}}
+@keyframes pop{from{opacity:0;transform:scale(.6)}to{opacity:1;transform:none}}
+@keyframes grow{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+@keyframes growv{from{transform:scaleY(0)}to{transform:scaleY(1)}}
+@keyframes tick{from{opacity:0;transform:scale(.3) rotate(-30deg)}to{opacity:1;transform:none}}
+@keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(255,79,163,.55)}50%{box-shadow:0 0 0 12px rgba(255,79,163,0)}}
+@keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-10px)}}
+@keyframes drift{from{transform:translate(0,0) scale(1)}to{transform:translate(60px,-40px) scale(1.15)}}
+@keyframes draw{to{stroke-dashoffset:0}}
+@keyframes cycle{0%,22%{background:#1a1024;border-color:rgba(255,255,255,.12)}28%,47%{background:#FFF7FB;border-color:#F3D3E3}53%,72%{background:#2b1f33;border-color:rgba(255,255,255,.14)}78%,100%{background:#0d0714;border-color:rgba(255,255,255,.1)}}
+@keyframes cycletxt{0%,22%{color:#F6EEF4}28%,47%{color:#2A1A2E}53%,100%{color:#F6EEF4}}
+@keyframes flip{0%{transform:rotateY(0)}45%{transform:rotateY(90deg)}55%{transform:rotateY(90deg);background:rgba(34,197,94,.18);border-color:rgba(34,197,94,.5)}100%{transform:rotateY(0);background:rgba(34,197,94,.18);border-color:rgba(34,197,94,.5)}}
+@keyframes stamp{from{opacity:0;transform:scale(1.8) rotate(-12deg)}to{opacity:1;transform:rotate(-8deg)}}
+@keyframes sync{0%,100%{opacity:.3;transform:translateX(0)}50%{opacity:1;transform:translateX(14px)}}
+@keyframes drop{from{opacity:0;transform:translateY(-60px) rotate(-8deg)}to{opacity:1;transform:none}}
+@keyframes wave{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
+</style>
+<style>
+.slide{display:contents}.slide[hidden]{display:none}
+@media (max-width: 900px){ .slide > div{grid-column: span 12 !important} .slide svg[preserveAspectRatio="none"]{min-width:90px} .slide div[style*="width: 150px"]{width:auto!important;min-width:90px} h1{font-size:40px!important} h2{font-size:32px!important} }
+</style>
+</head>
+<body>
+
+
+<div style="min-height: 100vh; box-sizing: border-box; display: flex; flex-direction: column; position: relative; overflow: hidden; background: radial-gradient(1200px 700px at 15% -10%, #3a1230 0%, rgba(58,18,48,0) 60%), radial-gradient(900px 600px at 95% 110%, #2a0f3a 0%, rgba(42,15,58,0) 60%), #120a18; color: #F6EEF4; font-family: Inter, system-ui, sans-serif;">
+  <div class="orb" aria-hidden="true" style="width: 420px; height: 420px; left: -120px; top: -140px; background: #D81B78;"></div>
+  <div class="orb" aria-hidden="true" style="width: 380px; height: 380px; right: -100px; bottom: -160px; background: #6D28D9; animation-duration: 18s;"></div>
+
+  <!-- top bar -->
+  <div style="display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 18px 28px; position: relative; z-index: 2; flex-wrap: wrap;">
+    <div style="display: flex; align-items: center; gap: 12px;">
+      <div style="width: 34px; height: 34px; border-radius: 10px; background: linear-gradient(135deg,#D81B78,#B5125F); display: flex; align-items: center; justify-content: center; box-shadow: 0 6px 18px rgba(216,27,120,.4);">
+        <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l2.4 5.2L20 8l-4 3.9.9 5.6L12 14.8 7.1 17.5 8 11.9 4 8l5.6-.8z"></path></svg>
+      </div>
+      <div style="font-weight: 700; font-size: 15px; letter-spacing: -.01em;">Spicy Sweet Payroll</div>
+      <div style="font-size: 12px; color: #B8A6C2; padding-left: 12px; border-left: 1px solid rgba(255,255,255,.14);">Feature tour</div>
+    </div>
+    <div style="display: flex; align-items: center; gap: 10px; font-size: 13px; color: #B8A6C2;">
+      <span id="counter">1 / 15</span>
+      <button class="ss-nav" id="auto" aria-label="Toggle autoplay" style="height: 36px; padding: 0 14px; font-size: 12px;">Autoplay off</button>
+    </div>
+  </div>
+
+  <!-- stage -->
+  <div style="flex: 1 1 auto; display: flex; align-items: center; justify-content: center; padding: 8px 28px 8px; position: relative; z-index: 2; min-height: 0;">
+    <div style="width: 100%; max-width: 1180px; display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 32px; align-items: center;">
+
+      <!-- ===== Slide 1: Title ===== -->
+      <div class="slide" data-s="s1" hidden>
+        <div style="grid-column: span 12; text-align: center; padding: 40px 16px; display: flex; flex-direction: column; align-items: center; gap: 22px;">
+          <div class="pop float" style="width: 118px; height: 118px; border-radius: 34px; background: linear-gradient(135deg,#D81B78,#7C1F9E); display: flex; align-items: center; justify-content: center; box-shadow: 0 30px 70px rgba(216,27,120,.45);">
+            <svg aria-hidden="true" width="58" height="58" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l2.4 5.2L20 8l-4 3.9.9 5.6L12 14.8 7.1 17.5 8 11.9 4 8l5.6-.8z"></path></svg>
+          </div>
+          <h1 class="rise d2" style="margin: 0; font-size: 60px; font-weight: 800; letter-spacing: -.03em; line-height: 1.05;">Spicy Sweet Payroll</h1>
+          <p class="rise d3" style="margin: 0; font-size: 22px; color: #D9C9DF; max-width: 640px; line-height: 1.45;">Payroll, paystubs, insights and invoices for Spicy Sweet all in one app, on desktop and iPhone.</p>
+          <div class="rise d4" style="font-size: 15px; color: #FF7DB8; font-weight: 600; letter-spacing: .14em; text-transform: uppercase;">Beyond the paycheck.</div>
+          <div class="rise d5" style="display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; margin-top: 10px;">
+            <span class="kbd">13 features</span><span class="kbd">Use Next → to begin</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== Slide 2: Accounts ===== -->
+      <div class="slide" data-s="s2" hidden>
+        <div style="grid-column: span 5; display: flex; flex-direction: column; gap: 16px;">
+          <div class="rise" style="font-size: 12px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: #FF7DB8;">01 · Accounts</div>
+          <h2 class="rise d1" style="margin: 0; font-size: 42px; font-weight: 800; letter-spacing: -.02em; line-height: 1.08;">Your whole team, signed in.</h2>
+          <p class="rise d2" style="margin: 0; font-size: 17px; line-height: 1.55; color: #D9C9DF;">Chatters create their own account and wait for access to be granted to them by an Owner. Each chatter sees only their own shifts, paystubs, and analytic history; managers see everything.</p>
+          <ul class="rise d3" style="margin: 0; padding-left: 18px; color: #B8A6C2; font-size: 14px; line-height: 1.7;">
+            <li>Owner, manager and chatter roles</li>
+            <li>Synced through your cloud account, same data on every device</li>
+            <li>Rename a chatter and their roster slot updates with them</li>
+          </ul>
+        </div>
+        <div style="grid-column: span 7; display: flex; flex-direction: column; gap: 12px; align-items: stretch;">
+          <div class="glass rise d1" style="padding: 18px 20px; display: flex; align-items: center; gap: 14px;">
+            <div style="width: 40px; height: 40px; border-radius: 12px; background: #3B2C45; display: flex; align-items: center; justify-content: center; font-weight: 700; color: #FFB3D4;">KL</div>
+            <div style="flex: 1;"><div style="font-weight: 600;">Kai L.</div><div style="font-size: 12px; color: #B8A6C2;">kai@example.com · Team Spicy</div></div>
+            <div class="pop d6" style="padding: 6px 12px; border-radius: 999px; background: rgba(34,197,94,.16); color: #7CE7A2; font-size: 12px; font-weight: 700; border: 1px solid rgba(34,197,94,.4);">Approved</div>
+          </div>
+          <div class="glass rise d2" style="padding: 18px 20px; display: flex; align-items: center; gap: 14px;">
+            <div style="width: 40px; height: 40px; border-radius: 12px; background: #3B2C45; display: flex; align-items: center; justify-content: center; font-weight: 700; color: #FFB3D4;">TV</div>
+            <div style="flex: 1;"><div style="font-weight: 600;">Theo V.</div><div style="font-size: 12px; color: #B8A6C2;">theo@example.com · Team Sweet</div></div>
+            <div class="pulse" style="padding: 6px 12px; border-radius: 999px; background: rgba(255,79,163,.14); color: #FF9CC9; font-size: 12px; font-weight: 700; border: 1px solid rgba(255,79,163,.45);">Pending · Approve</div>
+          </div>
+          <div class="glass rise d3" style="padding: 18px 20px; display: flex; align-items: center; gap: 14px;">
+            <div style="width: 40px; height: 40px; border-radius: 12px; background: #3B2C45; display: flex; align-items: center; justify-content: center; font-weight: 700; color: #FFB3D4;">NP</div>
+            <div style="flex: 1;"><div style="font-weight: 600;">Noor P.</div><div style="font-size: 12px; color: #B8A6C2;">Chatter view · sees own paystubs only</div></div>
+            <div style="padding: 6px 12px; border-radius: 999px; background: rgba(255,255,255,.08); color: #D9C9DF; font-size: 12px; font-weight: 600;">Chatter</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== Slide 3: Import ===== -->
+      <div class="slide" data-s="s3" hidden>
+        <div style="grid-column: span 5; display: flex; flex-direction: column; gap: 16px;">
+          <div class="rise" style="font-size: 12px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: #FF7DB8;">02 · Import</div>
+          <h2 class="rise d1" style="margin: 0; font-size: 42px; font-weight: 800; letter-spacing: -.02em; line-height: 1.08;">Drop in the Infloww report.</h2>
+          <p class="rise d2" style="margin: 0; font-size: 17px; line-height: 1.55; color: #D9C9DF;">Two imports, auto-detected: the weekly chatter report and the biweekly creator statistics. Shifts, hours, sales and Messages Pro hours fill in by themselves.</p>
+          <ul class="rise d3" style="margin: 0; padding-left: 18px; color: #B8A6C2; font-size: 14px; line-height: 1.7;">
+            <li>Sales logged with 0 hours merge into the previous shift</li>
+            <li>Picked-up (double) shifts are recognised, not flagged as typos</li>
+            <li>Fuzzy name matching keeps everyone on the right roster slot</li>
+          </ul>
+        </div>
+        <div style="grid-column: span 7; display: flex; flex-direction: column; gap: 14px;">
+          <div style="display: flex; gap: 14px; justify-content: center;">
+            <div class="drop glass" style="padding: 14px 18px; display: flex; align-items: center; gap: 10px; font-size: 13px; font-weight: 600;">
+              <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#FF7DB8" stroke-width="2" stroke-linecap="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"></path><path d="M14 3v5h5"></path></svg>
+              chatters-weekly.csv
+            </div>
+            <div class="drop glass d3" style="padding: 14px 18px; display: flex; align-items: center; gap: 10px; font-size: 13px; font-weight: 600; animation-delay: .35s;">
+              <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#C084FC" stroke-width="2" stroke-linecap="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"></path><path d="M14 3v5h5"></path></svg>
+              creators-biweekly.xlsx
+            </div>
+          </div>
+          <div class="glass" style="padding: 8px 6px; display: flex; flex-direction: column; gap: 4px; font-size: 13px;">
+            <div style="display: grid; grid-template-columns: 1.4fr 1fr 1fr 1fr 1fr; gap: 8px; padding: 8px 14px; color: #B8A6C2; font-size: 11px; text-transform: uppercase; letter-spacing: .08em;"><span>Chatter</span><span>Shifts</span><span>Hours</span><span>MP hrs</span><span>Sales</span></div>
+            <div class="rise d3" style="display: grid; grid-template-columns: 1.4fr 1fr 1fr 1fr 1fr; gap: 8px; padding: 10px 14px; border-radius: 12px; background: rgba(255,255,255,.04);"><span style="font-weight: 600;">Aria R.</span><span>5</span><span>40h</span><span>36.2h</span><span>$6,473.95</span></div>
+            <div class="rise d4" style="display: grid; grid-template-columns: 1.4fr 1fr 1fr 1fr 1fr; gap: 8px; padding: 10px 14px; border-radius: 12px; background: rgba(255,255,255,.04);"><span style="font-weight: 600;">Lena T.</span><span>5</span><span>40h</span><span>33.1h</span><span>$4,572.68</span></div>
+            <div class="rise d5" style="display: grid; grid-template-columns: 1.4fr 1fr 1fr 1fr 1fr; gap: 8px; padding: 10px 14px; border-radius: 12px; background: rgba(255,255,255,.04);"><span style="font-weight: 600;">Zuna</span><span>2 <span style="color:#FFB3D4;font-size:11px;">(picked up)</span></span><span>16h</span><span>6.4h</span><span>$2,350.00</span></div>
+            <div class="rise d6" style="display: grid; grid-template-columns: 1.4fr 1fr 1fr 1fr 1fr; gap: 8px; padding: 10px 14px; border-radius: 12px; background: rgba(255,255,255,.04);"><span style="font-weight: 600;">Kai</span><span>1</span><span>8h</span><span>7.5h</span><span>$1,100.00 <span style="color:#7CE7A2;font-size:11px;">+ merged</span></span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== Slide 4: Payroll one click ===== -->
+      <div class="slide" data-s="s4" hidden>
+        <div style="grid-column: span 5; display: flex; flex-direction: column; gap: 16px;">
+          <div class="rise" style="font-size: 12px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: #FF7DB8;">03 · Payroll</div>
+          <h2 class="rise d1" style="margin: 0; font-size: 42px; font-weight: 800; letter-spacing: -.02em; line-height: 1.08;">Payroll. One click.</h2>
+          <p class="rise d2" style="margin: 0; font-size: 17px; line-height: 1.55; color: #D9C9DF;">Hourly pay, commission, goals and bonuses are calculated for every chatter the moment the report lands. Anything odd shows up in a short "things to check" list.</p>
+          <ul class="rise d3" style="margin: 0; padding-left: 18px; color: #B8A6C2; font-size: 14px; line-height: 1.7;">
+            <li>Tick items off one by one, or "Checked all &amp; fixed all"</li>
+            <li>Shifts over 16.5h are errors; 8.5–16.5h are noted as picked-up shifts</li>
+            <li>Adjustments, strikes and custom pay per chatter</li>
+          </ul>
+        </div>
+        <div style="grid-column: span 7; display: flex; flex-direction: column; gap: 14px;">
+          <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px;">
+            <div class="glass pop d1" style="padding: 16px 18px;"><div style="font-size: 11px; color: #B8A6C2; text-transform: uppercase; letter-spacing: .08em;">Total payroll</div><div style="font-size: 26px; font-weight: 800; margin-top: 4px; color: #FF9CC9;">$3,119.24</div></div>
+            <div class="glass pop d2" style="padding: 16px 18px;"><div style="font-size: 11px; color: #B8A6C2; text-transform: uppercase; letter-spacing: .08em;">Gross sales</div><div style="font-size: 26px; font-weight: 800; margin-top: 4px;">$38,967</div></div>
+            <div class="glass pop d3" style="padding: 16px 18px;"><div style="font-size: 11px; color: #B8A6C2; text-transform: uppercase; letter-spacing: .08em;">Chatters</div><div style="font-size: 26px; font-weight: 800; margin-top: 4px;">10</div></div>
+          </div>
+          <div class="glass rise d3" style="padding: 16px 18px; display: flex; flex-direction: column; gap: 10px;">
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px;">
+              <div style="font-weight: 700;">Things to check <span style="color:#B8A6C2;font-weight:500;">· 3 done</span></div>
+              <div style="padding: 6px 12px; border-radius: 999px; background: linear-gradient(135deg,#D81B78,#B5125F); font-size: 12px; font-weight: 700;">Checked all &amp; fixed all</div>
+            </div>
+            <div style="display: flex; align-items: center; gap: 10px; font-size: 13px; color: #D9C9DF;"><span class="tick d4" style="width: 18px; height: 18px; border-radius: 6px; background: #FF4FA3; display: inline-flex; align-items: center; justify-content: center;"><svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3"><path d="M5 12l5 5L20 7"></path></svg></span>Zuna — only 6.4h of 16h clocked were on Messages Pro (40%)</div>
+            <div style="display: flex; align-items: center; gap: 10px; font-size: 13px; color: #D9C9DF;"><span class="tick d6" style="width: 18px; height: 18px; border-radius: 6px; background: #FF4FA3; display: inline-flex; align-items: center; justify-content: center;"><svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3"><path d="M5 12l5 5L20 7"></path></svg></span>Zuna — shift 1 has no date</div>
+            <div style="display: flex; align-items: center; gap: 10px; font-size: 13px; color: #D9C9DF;"><span class="tick d8" style="width: 18px; height: 18px; border-radius: 6px; background: #FF4FA3; display: inline-flex; align-items: center; justify-content: center;"><svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3"><path d="M5 12l5 5L20 7"></path></svg></span>Kai — 1 shift with 0 hours, sales merged into the shift before</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== Slide 5: Paystubs ===== -->
+      <div class="slide" data-s="s5" hidden>
+        <div style="grid-column: span 5; display: flex; flex-direction: column; gap: 16px;">
+          <div class="rise" style="font-size: 12px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: #FF7DB8;">04 · Paystubs</div>
+          <h2 class="rise d1" style="margin: 0; font-size: 42px; font-weight: 800; letter-spacing: -.02em; line-height: 1.08;">Every dollar, explained.</h2>
+          <p class="rise d2" style="margin: 0; font-size: 17px; line-height: 1.55; color: #D9C9DF;">Each chatter gets a paystub that shows exactly how their pay was built: hourly, commission tier, weekly goals, bonuses and adjustments with shift-by-shift detail.</p>
+          <ul class="rise d3" style="margin: 0; padding-left: 18px; color: #B8A6C2; font-size: 14px; line-height: 1.7;">
+            <li>Export as PDF or a shareable image</li>
+            <li>Exports keep the fixed brand look no matter which theme you use</li>
+            <li>Edit a line and the stub updates instantly</li>
+          </ul>
+        </div>
+        <div style="grid-column: span 7; display: flex; justify-content: center;">
+          <div class="glass rise d1" style="width: 420px; padding: 22px 24px; border-radius: 18px; background: linear-gradient(180deg, rgba(216,27,120,.18), rgba(255,255,255,.05));">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+              <div><div style="font-size: 11px; color: #FFB3D4; letter-spacing: .1em; text-transform: uppercase;">Earnings statement</div><div style="font-size: 20px; font-weight: 800;">Kai</div><div style="font-size: 12px; color: #D9C9DF;">Team Spicy · Nov 2 – Nov 8, 2026</div></div>
+              <div style="text-align: right;"><div style="font-size: 11px; color: #B8A6C2;">Gross pay</div><div class="pop d6" style="font-size: 24px; font-weight: 800; color: #FF9CC9;">$107.04</div></div>
+            </div>
+            <div style="height: 1px; background: rgba(255,255,255,.12); margin: 14px 0;"></div>
+            <div style="display: flex; flex-direction: column; gap: 8px; font-size: 13px;">
+              <div class="grow d2" style="display: flex; justify-content: space-between;"><span style="color:#D9C9DF;">Hourly pay · 8h</span><span>$56.00</span></div>
+              <div class="grow d3" style="display: flex; justify-content: space-between;"><span style="color:#D9C9DF;">Commission 5% on $1,100 net</span><span>$55.00</span></div>
+              <div class="grow d4" style="display: flex; justify-content: space-between;"><span style="color:#D9C9DF;">Weekly goal · 0 of 3 met</span><span>$0.00</span></div>
+              <div class="grow d5" style="display: flex; justify-content: space-between;"><span style="color:#D9C9DF;">Adjustment · late clock-out</span><span style="color:#FFB3D4;">−$3.96</span></div>
+            </div>
+            <div style="height: 1px; background: rgba(255,255,255,.12); margin: 14px 0;"></div>
+            <div class="rise d6" style="display: flex; gap: 8px;">
+              <span style="padding: 6px 12px; border-radius: 999px; background: linear-gradient(135deg,#D81B78,#B5125F); font-size: 12px; font-weight: 700;">PDF</span>
+              <span style="padding: 6px 12px; border-radius: 999px; background: rgba(255,255,255,.1); font-size: 12px; font-weight: 600;">Stub card</span>
+              <span style="padding: 6px 12px; border-radius: 999px; background: rgba(255,255,255,.1); font-size: 12px; font-weight: 600;">Copy message</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== Slide 6: Send out ===== -->
+      <div class="slide" data-s="s6" hidden>
+        <div style="grid-column: span 5; display: flex; flex-direction: column; gap: 16px;">
+          <div class="rise" style="font-size: 12px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: #FF7DB8;">05 · Send out</div>
+          <h2 class="rise d1" style="margin: 0; font-size: 42px; font-weight: 800; letter-spacing: -.02em; line-height: 1.08;">Everyone paid, one card at a time.</h2>
+          <p class="rise d2" style="margin: 0; font-size: 17px; line-height: 1.55; color: #D9C9DF;">The Send out deck lines up every paystub as a card. Open one, send it, press "Mark paid &amp; next" it flips green and the next chatter slides in. The same deck exists for model invoices.</p>
+          <ul class="rise d3" style="margin: 0; padding-left: 18px; color: #B8A6C2; font-size: 14px; line-height: 1.7;">
+            <li>Progress bar and "Everyone's been paid" banner at the end</li>
+            <li>Copy a ready-made Discord message per chatter</li>
+            <li>Paid status syncs to the payroll table</li>
+          </ul>
+        </div>
+        <div style="grid-column: span 7; display: flex; flex-direction: column; gap: 14px;">
+          <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px;">
+            <div class="glass flip" style="padding: 14px; text-align: center;"><div style="width: 34px; height: 34px; border-radius: 50%; background: #3B2C45; margin: 0 auto 8px; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700;">KL</div><div style="font-size: 12px; font-weight: 600;">Kai L.</div><div style="font-size: 13px; color: #FF9CC9; font-weight: 700;">$375.84</div></div>
+            <div class="glass pop d2" style="padding: 14px; text-align: center;"><div style="width: 34px; height: 34px; border-radius: 50%; background: #3B2C45; margin: 0 auto 8px; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700;">TV</div><div style="font-size: 12px; font-weight: 600;">Theo V.</div><div style="font-size: 13px; color: #FF9CC9; font-weight: 700;">$256.15</div></div>
+            <div class="glass pop d3" style="padding: 14px; text-align: center;"><div style="width: 34px; height: 34px; border-radius: 50%; background: #3B2C45; margin: 0 auto 8px; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700;">SB</div><div style="font-size: 12px; font-weight: 600;">Sam B.</div><div style="font-size: 13px; color: #FF9CC9; font-weight: 700;">$224.47</div></div>
+            <div class="glass pop d4" style="padding: 14px; text-align: center;"><div style="width: 34px; height: 34px; border-radius: 50%; background: #3B2C45; margin: 0 auto 8px; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700;">NP</div><div style="font-size: 12px; font-weight: 600;">Noor P.</div><div style="font-size: 13px; color: #FF9CC9; font-weight: 700;">$267.34</div></div>
+          </div>
+          <div class="glass rise d2" style="padding: 18px 20px; display: flex; align-items: center; gap: 16px;">
+            <div style="flex: 1;"><div style="font-weight: 700;">Theo V. <span style="color:#B8A6C2;font-weight:500;font-size:12px;">· 2 of 10</span></div><div style="font-size: 12px; color: #D9C9DF;">Hourly $144 · Commission $92.15 · Goal bonus $20</div></div>
+            <div style="font-size: 22px; font-weight: 800; color: #FF9CC9;">$256.15</div>
+            <div class="pulse" style="padding: 10px 14px; border-radius: 12px; background: linear-gradient(135deg,#D81B78,#B5125F); font-size: 12px; font-weight: 700; white-space: nowrap;">Mark paid &amp; next →</div>
+          </div>
+          <div style="height: 6px; border-radius: 99px; background: rgba(255,255,255,.08); overflow: hidden;"><div class="grow d3" style="height: 100%; width: 20%; background: linear-gradient(90deg,#D81B78,#FF7DB8);"></div></div>
+        </div>
+      </div>
+
+      <!-- ===== Slide 7: Chatter insights ===== -->
+      <div class="slide" data-s="s7" hidden>
+        <div style="grid-column: span 5; display: flex; flex-direction: column; gap: 16px;">
+          <div class="rise" style="font-size: 12px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: #FF7DB8;">06 · Chatter insights</div>
+          <h2 class="rise d1" style="margin: 0; font-size: 42px; font-weight: 800; letter-spacing: -.02em; line-height: 1.08;">Know who's really working.</h2>
+          <p class="rise d2" style="margin: 0; font-size: 17px; line-height: 1.55; color: #D9C9DF;">Clocked hours are compared with hours on Messages Pro. Sales, messages and fans chatted are shown per hour, and anyone under 70% on-platform is flagged with a ready-to-send coaching note.</p>
+          <ul class="rise d3" style="margin: 0; padding-left: 18px; color: #B8A6C2; font-size: 14px; line-height: 1.7;">
+            <li>Sales / hour, messages / hour, fans / hour</li>
+            <li>Weekly report per chatter and per team</li>
+            <li>"Copy report for owners" in one click</li>
+          </ul>
+        </div>
+        <div style="grid-column: span 7; display: flex; flex-direction: column; gap: 14px;">
+          <div class="glass rise d1" style="padding: 18px 20px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;"><div style="font-weight: 700;">Aria R. <span style="color:#B8A6C2;font-weight:500;font-size:12px;">· this week</span></div><div style="padding: 5px 10px; border-radius: 999px; background: rgba(34,197,94,.16); color: #7CE7A2; font-size: 11px; font-weight: 700;">91% on Messages Pro</div></div>
+            <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; font-size: 12px; color: #B8A6C2;">
+              <div class="pop d2"><div style="font-size: 20px; font-weight: 800; color: #F6EEF4;">$161</div>sales / hr</div>
+              <div class="pop d3"><div style="font-size: 20px; font-weight: 800; color: #F6EEF4;">48</div>msgs / hr</div>
+              <div class="pop d4"><div style="font-size: 20px; font-weight: 800; color: #F6EEF4;">6.2</div>fans / hr</div>
+              <div class="pop d5"><div style="font-size: 20px; font-weight: 800; color: #F6EEF4;">36.2h</div>of 40h clocked</div>
+            </div>
+          </div>
+          <div class="glass rise d2" style="padding: 18px 20px; display: flex; flex-direction: column; gap: 10px;">
+            <div style="font-size: 12px; color: #B8A6C2; text-transform: uppercase; letter-spacing: .08em;">Hours on Messages Pro vs clocked</div>
+            <div style="display: flex; align-items: center; gap: 12px; font-size: 13px;"><span style="width: 70px;">Aria R.</span><div style="flex: 1; height: 10px; border-radius: 99px; background: rgba(255,255,255,.08); overflow: hidden;"><div class="grow d3" style="height: 100%; width: 91%; background: linear-gradient(90deg,#22c55e,#7CE7A2);"></div></div><span style="width: 40px; text-align: right;">91%</span></div>
+            <div style="display: flex; align-items: center; gap: 12px; font-size: 13px;"><span style="width: 70px;">Lena T.</span><div style="flex: 1; height: 10px; border-radius: 99px; background: rgba(255,255,255,.08); overflow: hidden;"><div class="grow d4" style="height: 100%; width: 83%; background: linear-gradient(90deg,#22c55e,#7CE7A2);"></div></div><span style="width: 40px; text-align: right;">83%</span></div>
+            <div style="display: flex; align-items: center; gap: 12px; font-size: 13px;"><span style="width: 70px;">Zuna</span><div style="flex: 1; height: 10px; border-radius: 99px; background: rgba(255,255,255,.08); overflow: hidden;"><div class="grow d5" style="height: 100%; width: 40%; background: linear-gradient(90deg,#D81B78,#FF7DB8);"></div></div><span style="width: 40px; text-align: right; color: #FF9CC9;">40%</span></div>
+            <div class="rise d6" style="margin-top: 4px; padding: 10px 12px; border-radius: 12px; background: rgba(255,79,163,.12); border: 1px solid rgba(255,79,163,.35); font-size: 12px; color: #FFB3D4;">Flag: Zuna below 70% on-platform — coaching note ready to copy.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== Slide 7b: Head chatter team reports ===== -->
+      <div class="slide" data-s="s7b" hidden>
+        <div style="grid-column: span 5; display: flex; flex-direction: column; gap: 16px;">
+          <div class="rise" style="font-size: 12px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: #FF7DB8;">07 · Reports for head chatters</div>
+          <h2 class="rise d1" style="margin: 0; font-size: 42px; font-weight: 800; letter-spacing: -.02em; line-height: 1.08;">A report each head chatter can act on.</h2>
+          <p class="rise d2" style="margin: 0; font-size: 17px; line-height: 1.55; color: #D9C9DF;">The Team view turns the week's insights into a report per chat team: team sales, targets hit, every chatter's numbers side by side, who needs attention, and plain-language team tips written from the data.</p>
+          <ul class="rise d3" style="margin: 0; padding-left: 18px; color: #B8A6C2; font-size: 14px; line-height: 1.7;">
+            <li>Download it as a team deck to send to the head chatter</li>
+            <li>Copy a written version for co-owners in one click</li>
+            <li>The sent copy keeps the fixed brand look, whatever theme you use</li>
+          </ul>
+        </div>
+        <div style="grid-column: span 7; display: flex; flex-direction: column; gap: 12px; align-items: center;">
+          <div class="rise d1" style="width: 100%; max-width: 560px; box-sizing: border-box; padding: 22px 24px; border-radius: 14px; background: #FFFFFF; color: #1F1424; box-shadow: 0 30px 70px rgba(0,0,0,.45);">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 12px;">
+              <div><div style="font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: #B5125F;">Team report</div><div style="font-size: 20px; font-weight: 800; letter-spacing: -.01em;">Team Spicy</div><div style="font-size: 12px; color: #6B5C73;">Head chatter: Aria R. · Nov 2 – Nov 8, 2026</div></div>
+              <div style="display: flex; gap: 8px;">
+                <div class="pop d2" style="padding: 8px 12px; border-radius: 10px; background: #FDE7F1; text-align: right;"><div style="font-size: 10px; color: #6B5C73;">Team sales</div><div style="font-size: 15px; font-weight: 800; color: #B5125F;">$14,876</div></div>
+                <div class="pop d3" style="padding: 8px 12px; border-radius: 10px; background: #F4EEF6; text-align: right;"><div style="font-size: 10px; color: #6B5C73;">Targets hit</div><div style="font-size: 15px; font-weight: 800;">11 / 13</div></div>
+              </div>
+            </div>
+            <div style="height: 1px; background: #EFE3EA; margin: 14px 0 6px;"></div>
+            <div style="display: grid; grid-template-columns: 1.3fr 1fr 1fr 1fr 1.2fr; gap: 8px; padding: 6px 4px; font-size: 10px; color: #6B5C73; text-transform: uppercase; letter-spacing: .08em;"><span>Chatter</span><span>Sales</span><span>$ / hr</span><span>On MP</span><span>Note</span></div>
+            <div class="rise d3" style="display: grid; grid-template-columns: 1.3fr 1fr 1fr 1fr 1.2fr; gap: 8px; padding: 8px 4px; font-size: 13px; border-top: 1px solid #F4EAF0;"><span style="font-weight: 700;">Aria R.</span><span>$6,473</span><span>$161</span><span>91%</span><span style="color: #15803D; font-weight: 600;">Top of team</span></div>
+            <div class="rise d4" style="display: grid; grid-template-columns: 1.3fr 1fr 1fr 1fr 1.2fr; gap: 8px; padding: 8px 4px; font-size: 13px; border-top: 1px solid #F4EAF0;"><span style="font-weight: 700;">Lena T.</span><span>$4,572</span><span>$114</span><span>83%</span><span style="color: #6B5C73;">On track</span></div>
+            <div class="rise d5" style="display: grid; grid-template-columns: 1.3fr 1fr 1fr 1fr 1.2fr; gap: 8px; padding: 8px 4px; font-size: 13px; border-top: 1px solid #F4EAF0;"><span style="font-weight: 700;">Zuna</span><span>$2,350</span><span>$146</span><span style="color: #B5125F; font-weight: 700;">40%</span><span style="color: #B5125F; font-weight: 600;">Idle time flag</span></div>
+            <div class="rise d6" style="display: grid; grid-template-columns: 1.3fr 1fr 1fr 1fr 1.2fr; gap: 8px; padding: 8px 4px; font-size: 13px; border-top: 1px solid #F4EAF0;"><span style="font-weight: 700;">Kai</span><span>$1,100</span><span>$137</span><span>94%</span><span style="color: #6B5C73;">1 shift only</span></div>
+            <div class="pop d7" style="margin-top: 12px; padding: 12px 14px; border-radius: 10px; background: #FFF6DB; border: 1px solid #F1D98A; font-size: 12px; line-height: 1.5; color: #4A3A12;"><span style="font-weight: 800; letter-spacing: .08em; text-transform: uppercase; font-size: 10px;">Team tips</span><br>Zuna was on Messages Pro for 40% of clocked hours — clocked hours are being paid for time outside the inbox. Check in before the next shift. Aria's reply speed is worth sharing with the team.</div>
+          </div>
+          <div class="rise d8" style="display: flex; gap: 10px; flex-wrap: wrap; justify-content: center;">
+            <span style="padding: 9px 16px; border-radius: 999px; background: linear-gradient(135deg,#D81B78,#B5125F); font-size: 12px; font-weight: 700;">Download team deck</span>
+            <span style="padding: 9px 16px; border-radius: 999px; background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.14); font-size: 12px; font-weight: 600;">Copy report for co-owners</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== Slide 7c: Week-over-week chatter trends ===== -->
+      <div class="slide" data-s="s7c" hidden>
+        <div style="grid-column: span 5; display: flex; flex-direction: column; gap: 16px;">
+          <div class="rise" style="font-size: 12px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: #FF7DB8;">08 · Chatter trends</div>
+          <h2 class="rise d1" style="margin: 0; font-size: 42px; font-weight: 800; letter-spacing: -.02em; line-height: 1.08;">This week against every week before it.</h2>
+          <p class="rise d2" style="margin: 0; font-size: 17px; line-height: 1.55; color: #D9C9DF;">Every payroll you save becomes a week of history. Trends lines this week up against all the weeks already run through the app, so you can see who is climbing, who is slipping, and whether one bad week is a blip or a pattern.</p>
+          <ul class="rise d3" style="margin: 0; padding-left: 18px; color: #B8A6C2; font-size: 14px; line-height: 1.7;">
+            <li>Per chatter: revenue, targets hit and golden ratio, week by week</li>
+            <li>Agency-wide: revenue and payroll over the same weeks</li>
+            <li>Built automatically "Save this week" is the only step</li>
+          </ul>
+        </div>
+        <div style="grid-column: span 7; display: flex; flex-direction: column; gap: 12px;">
+          <div class="glass rise d1" style="padding: 18px 20px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; gap: 12px;"><div style="font-weight: 700;">Agency revenue <span style="color:#B8A6C2;font-weight:500;font-size:12px;">· 8 weeks · Sep 14 → this week</span></div><div class="pop d8" style="padding: 5px 10px; border-radius: 999px; background: rgba(255,79,163,.16); color: #FF9CC9; font-size: 11px; font-weight: 700; border: 1px solid rgba(255,79,163,.4);">This week</div></div>
+            <div style="display: flex; align-items: flex-end; gap: 10px; height: 120px;">
+              <div class="growv d1" style="flex: 1; height: 52px; border-radius: 6px 6px 3px 3px; background: rgba(255,255,255,.18);"></div>
+              <div class="growv d2" style="flex: 1; height: 60px; border-radius: 6px 6px 3px 3px; background: rgba(255,255,255,.18);"></div>
+              <div class="growv d2" style="flex: 1; height: 56px; border-radius: 6px 6px 3px 3px; background: rgba(255,255,255,.18);"></div>
+              <div class="growv d3" style="flex: 1; height: 72px; border-radius: 6px 6px 3px 3px; background: rgba(255,255,255,.18);"></div>
+              <div class="growv d4" style="flex: 1; height: 68px; border-radius: 6px 6px 3px 3px; background: rgba(255,255,255,.18);"></div>
+              <div class="growv d5" style="flex: 1; height: 84px; border-radius: 6px 6px 3px 3px; background: rgba(255,255,255,.18);"></div>
+              <div class="growv d6" style="flex: 1; height: 90px; border-radius: 6px 6px 3px 3px; background: rgba(255,255,255,.18);"></div>
+              <div class="growv d7" style="flex: 1; height: 112px; border-radius: 6px 6px 3px 3px; background: linear-gradient(180deg,#FF7DB8,#D81B78); box-shadow: 0 0 24px rgba(255,79,163,.45);"></div>
+            </div>
+          </div>
+          <div class="glass rise d2" style="padding: 14px 18px; display: flex; align-items: center; gap: 14px;">
+            <div style="width: 150px;"><div style="font-weight: 700; font-size: 14px;">Aria R.</div><div style="font-size: 11px; color: #B8A6C2;">Revenue · 8 weeks tracked</div></div>
+            <svg role="img" aria-label="Aria's revenue rising across eight weeks" width="100%" height="40" viewBox="0 0 280 40" preserveAspectRatio="none" style="flex: 1; display: block;"><path d="M4 32 L42 30 L80 26 L118 27 L156 20 L194 16 L232 12 L276 5" fill="none" stroke="#7CE7A2" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="draw"></path></svg>
+            <div class="pop d6" style="padding: 5px 10px; border-radius: 999px; background: rgba(34,197,94,.16); color: #7CE7A2; font-size: 11px; font-weight: 700; white-space: nowrap;">Highest week so far</div>
+          </div>
+          <div class="glass rise d3" style="padding: 14px 18px; display: flex; align-items: center; gap: 14px;">
+            <div style="width: 150px;"><div style="font-weight: 700; font-size: 14px;">Jade M.</div><div style="font-size: 11px; color: #B8A6C2;">Targets hit · 8 weeks tracked</div></div>
+            <svg role="img" aria-label="Jade's targets hit falling over the last three weeks" width="100%" height="40" viewBox="0 0 280 40" preserveAspectRatio="none" style="flex: 1; display: block;"><path d="M4 10 L42 8 L80 12 L118 9 L156 11 L194 18 L232 25 L276 33" fill="none" stroke="#FF7DB8" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="draw"></path></svg>
+            <div class="pop d7" style="padding: 5px 10px; border-radius: 999px; background: rgba(255,79,163,.14); color: #FF9CC9; font-size: 11px; font-weight: 700; white-space: nowrap; border: 1px solid rgba(255,79,163,.4);">Down 3 weeks running</div>
+          </div>
+          <div class="glass rise d4" style="padding: 14px 18px; display: flex; align-items: center; gap: 14px;">
+            <div style="width: 150px;"><div style="font-weight: 700; font-size: 14px;">Lena T.</div><div style="font-size: 11px; color: #B8A6C2;">Golden ratio · 8 weeks tracked</div></div>
+            <svg role="img" aria-label="Lena's golden ratio holding steady across eight weeks" width="100%" height="40" viewBox="0 0 280 40" preserveAspectRatio="none" style="flex: 1; display: block;"><path d="M4 20 L42 18 L80 22 L118 19 L156 21 L194 18 L232 20 L276 19" fill="none" stroke="#7DD3FC" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="draw"></path></svg>
+            <div class="pop d8" style="padding: 5px 10px; border-radius: 999px; background: rgba(255,255,255,.08); color: #D9C9DF; font-size: 11px; font-weight: 700; white-space: nowrap;">Steady</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== Slide 8: Models & creator reports ===== -->
+      <div class="slide" data-s="s8" hidden>
+        <div style="grid-column: span 5; display: flex; flex-direction: column; gap: 16px;">
+          <div class="rise" style="font-size: 12px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: #FF7DB8;">09 · Models &amp; trends</div>
+          <h2 class="rise d1" style="margin: 0; font-size: 42px; font-weight: 800; letter-spacing: -.02em; line-height: 1.08;">Which accounts earn best.</h2>
+          <p class="rise d2" style="margin: 0; font-size: 17px; line-height: 1.55; color: #D9C9DF;">Creator reports drive the Models view: net per account, net per chatter-hour, and whether each creator is trending up or down. Assign creators to chat teams and set goals from real numbers.</p>
+          <ul class="rise d3" style="margin: 0; padding-left: 18px; color: #B8A6C2; font-size: 14px; line-height: 1.7;">
+            <li>Creator trends: reads, wins, tips, by day</li>
+            <li>Goal plan built from recent weekly series</li>
+            <li>Teams: Spicy, Sweet, Kenna, Smeeps, Mannah…</li>
+          </ul>
+        </div>
+        <div style="grid-column: span 7; display: flex; flex-direction: column; gap: 14px;">
+          <div class="glass rise d1" style="padding: 18px 20px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;"><div style="font-weight: 700;">Smeeps <span style="color:#B8A6C2;font-weight:500;font-size:12px;">· Team Smeeps</span></div><div style="padding: 5px 10px; border-radius: 999px; background: rgba(34,197,94,.16); color: #7CE7A2; font-size: 11px; font-weight: 700;">▲ 12% vs last period</div></div>
+            <svg role="img" aria-label="Net revenue trend rising over two weeks" width="100%" height="120" viewBox="0 0 560 120" preserveAspectRatio="none" style="display: block;">
+              <path d="M0 100 L40 92 L80 96 L120 80 L160 84 L200 70 L240 74 L280 58 L320 62 L360 48 L400 52 L440 36 L480 40 L520 24 L560 20" fill="none" stroke="#FF4FA3" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" class="draw"></path>
+              <path d="M0 100 L40 92 L80 96 L120 80 L160 84 L200 70 L240 74 L280 58 L320 62 L360 48 L400 52 L440 36 L480 40 L520 24 L560 20 L560 120 L0 120 Z" fill="url(#g)" opacity=".35"></path>
+              <defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FF4FA3"></stop><stop offset="1" stop-color="#FF4FA3" stop-opacity="0"></stop></linearGradient></defs>
+            </svg>
+          </div>
+          <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px;">
+            <div class="glass pop d2" style="padding: 14px 16px;"><div style="font-size: 11px; color: #B8A6C2;">Net (period)</div><div style="font-size: 20px; font-weight: 800;">$14,879</div></div>
+            <div class="glass pop d3" style="padding: 14px 16px;"><div style="font-size: 11px; color: #B8A6C2;">Net / chatter-hr</div><div style="font-size: 20px; font-weight: 800; color: #FF9CC9;">$118.90</div></div>
+            <div class="glass pop d4" style="padding: 14px 16px;"><div style="font-size: 11px; color: #B8A6C2;">Goal next week</div><div style="font-size: 20px; font-weight: 800;">$8,200</div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== Slide 9: Model invoices ===== -->
+      <div class="slide" data-s="s9" hidden>
+        <div style="grid-column: span 5; display: flex; flex-direction: column; gap: 16px;">
+          <div class="rise" style="font-size: 12px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: #FF7DB8;">10 · Model invoices</div>
+          <h2 class="rise d1" style="margin: 0; font-size: 42px; font-weight: 800; letter-spacing: -.02em; line-height: 1.08;">Invoices, drafted for you.</h2>
+          <p class="rise d2" style="margin: 0; font-size: 17px; line-height: 1.55; color: #D9C9DF;">"Draft all" creates an invoice per model from the creator report, numbered in sequence and billed on net or gross. Edit lines, add expenses, export a clean PDF then send it from the Send out deck.</p>
+          <ul class="rise d3" style="margin: 0; padding-left: 18px; color: #B8A6C2; font-size: 14px; line-height: 1.7;">
+            <li>Agency details, bank info and numbering live in Settings</li>
+            <li>Clear drafts in one step when you want to start over</li>
+            <li>Invoice totals feed the Agency P&amp;L</li>
+          </ul>
+        </div>
+        <div style="grid-column: span 7; display: flex; justify-content: center;">
+          <div class="rise d1" style="width: 440px; padding: 24px 26px; border-radius: 14px; background: #FFFFFF; color: #1F1424; position: relative; box-shadow: 0 30px 70px rgba(0,0,0,.45);">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+              <div><div style="font-size: 22px; font-weight: 800; letter-spacing: -.02em;">INVOICE</div><div style="font-size: 12px; color: #6B5C73;">INV-171 · Oct 28th, 2026</div></div>
+              <div style="text-align: right; font-size: 12px; color: #6B5C73;"><div style="font-weight: 700; color: #1F1424;">Spicy Sweet LLC</div><div>Bill to: Smeeps</div></div>
+            </div>
+            <div style="height: 1px; background: #EFE3EA; margin: 14px 0;"></div>
+            <div style="display: flex; flex-direction: column; gap: 8px; font-size: 13px;">
+              <div class="grow d2" style="display: flex; justify-content: space-between;"><span>Chatting services · Oct 14 – Oct 27</span><span>$2,975.64</span></div>
+              <div class="grow d3" style="display: flex; justify-content: space-between;"><span>Agency fee 20% of net</span><span>$2,975.64</span></div>
+              <div class="grow d4" style="display: flex; justify-content: space-between; color: #6B5C73;"><span>Other expenses</span><span>$0.00</span></div>
+            </div>
+            <div style="height: 1px; background: #EFE3EA; margin: 14px 0;"></div>
+            <div class="rise d5" style="display: flex; justify-content: space-between; font-weight: 800; font-size: 16px;"><span>Total due</span><span style="color: #D81B78;">$2,975.64</span></div>
+            <div class="stamp" style="position: absolute; right: 24px; bottom: 64px; padding: 6px 14px; border: 3px solid #22c55e; color: #22c55e; border-radius: 8px; font-weight: 800; letter-spacing: .12em; font-size: 14px;">DRAFTED</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== Slide 10: Team, Leaderboard, P&L ===== -->
+      <div class="slide" data-s="s10" hidden>
+        <div style="grid-column: span 5; display: flex; flex-direction: column; gap: 16px;">
+          <div class="rise" style="font-size: 12px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: #FF7DB8;">11 · Leaderboard · P&amp;L</div>
+          <h2 class="rise d1" style="margin: 0; font-size: 42px; font-weight: 800; letter-spacing: -.02em; line-height: 1.08;">The whole agency at a glance.</h2>
+          <p class="rise d2" style="margin: 0; font-size: 17px; line-height: 1.55; color: #D9C9DF;">Team sheets for head chatters, a weekly leaderboard with auto-awards and a Discord-ready announcement, and an Agency P&amp;L that nets payroll and expenses against what the models bring in.</p>
+          <ul class="rise d3" style="margin: 0; padding-left: 18px; color: #B8A6C2; font-size: 14px; line-height: 1.7;">
+            <li>Team goals and per-team flags</li>
+            <li>Download leaderboard image or copy the announcement</li>
+            <li>Manager's statement and "left for owners"</li>
+          </ul>
+        </div>
+        <div style="grid-column: span 7; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px;">
+          <div class="glass rise d1" style="padding: 16px 18px; display: flex; flex-direction: column; gap: 8px;">
+            <div style="font-size: 11px; color: #B8A6C2; text-transform: uppercase; letter-spacing: .08em;">Weekly leaderboard</div>
+            <div class="rise d2" style="display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 10px; background: rgba(255,79,163,.14);"><span style="font-weight: 800; color: #FF9CC9;">1</span><span style="flex: 1; font-weight: 600;">Aria R.</span><span style="font-size: 13px;">$6,473</span></div>
+            <div class="rise d3" style="display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 10px; background: rgba(255,255,255,.05);"><span style="font-weight: 800; color: #D9C9DF;">2</span><span style="flex: 1; font-weight: 600;">Mila K.</span><span style="font-size: 13px;">$5,151</span></div>
+            <div class="rise d4" style="display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 10px; background: rgba(255,255,255,.05);"><span style="font-weight: 800; color: #D9C9DF;">3</span><span style="flex: 1; font-weight: 600;">Lena T.</span><span style="font-size: 13px;">$4,572</span></div>
+            <div class="rise d5" style="display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 10px; background: rgba(255,255,255,.05);"><span style="font-weight: 800; color: #D9C9DF;">4</span><span style="flex: 1; font-weight: 600;">Jade M.</span><span style="font-size: 13px;">$3,153</span></div>
+          </div>
+          <div class="glass rise d2" style="padding: 16px 18px; display: flex; flex-direction: column; gap: 10px;">
+            <div style="font-size: 11px; color: #B8A6C2; text-transform: uppercase; letter-spacing: .08em;">Agency P&amp;L</div>
+            <div style="display: flex; align-items: flex-end; gap: 10px; height: 110px;">
+              <div style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px;"><div class="growv d2" style="width: 100%; height: 100px; border-radius: 8px 8px 4px 4px; background: linear-gradient(180deg,#FF7DB8,#D81B78);"></div><span style="font-size: 11px; color: #B8A6C2;">Gross</span></div>
+              <div style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px;"><div class="growv d3" style="width: 100%; height: 56px; border-radius: 8px 8px 4px 4px; background: rgba(255,255,255,.22);"></div><span style="font-size: 11px; color: #B8A6C2;">Net</span></div>
+              <div style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px;"><div class="growv d4" style="width: 100%; height: 12px; border-radius: 8px 8px 4px 4px; background: rgba(255,255,255,.22);"></div><span style="font-size: 11px; color: #B8A6C2;">Payroll</span></div>
+              <div style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px;"><div class="growv d5" style="width: 100%; height: 44px; border-radius: 8px 8px 4px 4px; background: linear-gradient(180deg,#7CE7A2,#22c55e);"></div><span style="font-size: 11px; color: #B8A6C2;">Profit</span></div>
+            </div>
+            <div class="pop d6" style="font-size: 13px;"><span style="color:#B8A6C2;">Agency profit</span> <span style="font-weight: 800; color: #7CE7A2;">$742.79</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== Slide 11: Themes, sounds, cursor ===== -->
+      <div class="slide" data-s="s11" hidden>
+        <div style="grid-column: span 5; display: flex; flex-direction: column; gap: 16px;">
+          <div class="rise" style="font-size: 12px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: #FF7DB8;">12 · Your look</div>
+          <h2 class="rise d1" style="margin: 0; font-size: 42px; font-weight: 800; letter-spacing: -.02em; line-height: 1.08;">Themes, sounds, and a glass cursor.</h2>
+          <p class="rise d2" style="margin: 0; font-size: 17px; line-height: 1.55; color: #D9C9DF;">Light, Dim, Night and Midnight themes each with its own gradient and text colours that stay readable. Pick a background and accent, tune the cursor's transparency, and assign sounds from a library to clicks, hovers, toggles and "paid".</p>
+          <ul class="rise d3" style="margin: 0; padding-left: 18px; color: #B8A6C2; font-size: 14px; line-height: 1.7;">
+            <li>Everything on screen follows the theme; exports never change</li>
+            <li>17 professional sound effects, volume per device</li>
+            <li>Settings live on each device, not in the shared data</li>
+          </ul>
+        </div>
+        <div style="grid-column: span 7; display: flex; flex-direction: column; gap: 14px;">
+          <div class="cycle rise d1" style="border: 1px solid rgba(255,255,255,.12); border-radius: 18px; padding: 18px 20px; background: #1a1024; box-shadow: 0 20px 60px rgba(0,0,0,.35);">
+            <div class="cycletxt" style="display: flex; justify-content: space-between; align-items: center; font-weight: 700;"><span>Payroll</span><span style="padding: 5px 12px; border-radius: 999px; background: linear-gradient(135deg,#D81B78,#B5125F); color: #fff; font-size: 12px;">Import</span></div>
+            <div class="cycletxt" style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 14px; font-size: 12px;">
+              <div style="padding: 12px; border-radius: 12px; background: rgba(216,27,120,.14); border: 1px solid rgba(216,27,120,.3);">Total payroll<div style="font-size: 18px; font-weight: 800;">$3,119</div></div>
+              <div style="padding: 12px; border-radius: 12px; background: rgba(127,112,137,.14); border: 1px solid rgba(127,112,137,.3);">Gross sales<div style="font-size: 18px; font-weight: 800;">$38,967</div></div>
+              <div style="padding: 12px; border-radius: 12px; background: rgba(127,112,137,.14); border: 1px solid rgba(127,112,137,.3);">Chatters<div style="font-size: 18px; font-weight: 800;">10</div></div>
+            </div>
+          </div>
+          <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px;">
+            <div class="glass pop d2" style="padding: 12px; text-align: center; font-size: 12px; font-weight: 600;"><div style="height: 26px; border-radius: 8px; background: linear-gradient(135deg,#FFF7FB,#FFE1EE); margin-bottom: 8px;"></div>Light</div>
+            <div class="glass pop d3" style="padding: 12px; text-align: center; font-size: 12px; font-weight: 600;"><div style="height: 26px; border-radius: 8px; background: linear-gradient(135deg,#2b1f33,#3d2648); margin-bottom: 8px;"></div>Dim</div>
+            <div class="glass pop d4" style="padding: 12px; text-align: center; font-size: 12px; font-weight: 600;"><div style="height: 26px; border-radius: 8px; background: linear-gradient(135deg,#1a1024,#2a1538); margin-bottom: 8px;"></div>Night</div>
+            <div class="glass pop d5" style="padding: 12px; text-align: center; font-size: 12px; font-weight: 600;"><div style="height: 26px; border-radius: 8px; background: linear-gradient(135deg,#0d0714,#1b0f2a); margin-bottom: 8px;"></div>Midnight</div>
+          </div>
+          <div class="glass rise d4" style="padding: 12px 16px; display: flex; align-items: center; gap: 14px; font-size: 13px;">
+            <span style="color:#B8A6C2;">Sounds</span>
+            <span class="wave" aria-hidden="true" style="display: inline-flex; gap: 3px; align-items: flex-end; height: 18px;"><span style="width: 4px; height: 8px; border-radius: 2px; background: #FF7DB8;"></span><span style="width: 4px; height: 16px; border-radius: 2px; background: #FF7DB8;"></span><span style="width: 4px; height: 11px; border-radius: 2px; background: #FF7DB8;"></span><span style="width: 4px; height: 18px; border-radius: 2px; background: #FF7DB8;"></span><span style="width: 4px; height: 7px; border-radius: 2px; background: #FF7DB8;"></span></span>
+            <span>Click · Soft tap</span><span style="color:#B8A6C2;">·</span><span>Paid · Chime</span><span style="color:#B8A6C2;">·</span><span>Hover · Whisper</span>
+            <span style="margin-left: auto; color: #B8A6C2;">Cursor opacity 60%</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== Slide 12: Desktop + iPhone ===== -->
+      <div class="slide" data-s="s12" hidden>
+        <div style="grid-column: span 5; display: flex; flex-direction: column; gap: 16px;">
+          <div class="rise" style="font-size: 12px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: #FF7DB8;">13 · Anywhere</div>
+          <h2 class="rise d1" style="margin: 0; font-size: 42px; font-weight: 800; letter-spacing: -.02em; line-height: 1.08;">Desktop. iPhone. Always in sync.</h2>
+          <p class="rise d2" style="margin: 0; font-size: 17px; line-height: 1.55; color: #D9C9DF;">Run it as a desktop app, open it from the web, or add it to your iPhone home screen. One account, one set of data&nbsp; a chatter paid on your laptop shows as paid on your phone a second later.</p>
+          <ul class="rise d3" style="margin: 0; padding-left: 18px; color: #B8A6C2; font-size: 14px; line-height: 1.7;">
+            <li>Phone layout with shift cards instead of wide tables</li>
+            <li>"Update ready" bar when a new version ships</li>
+            <li>Works offline for the current page; syncs when back</li>
+          </ul>
+        </div>
+        <div style="grid-column: span 7; display: flex; align-items: center; justify-content: center; gap: 18px;">
+          <div class="glass rise d1" style="width: 380px; height: 240px; padding: 14px; display: flex; flex-direction: column; gap: 8px;">
+            <div style="display: flex; gap: 6px;"><span style="width: 8px; height: 8px; border-radius: 50%; background: #FF5F57;"></span><span style="width: 8px; height: 8px; border-radius: 50%; background: #FEBC2E;"></span><span style="width: 8px; height: 8px; border-radius: 50%; background: #28C840;"></span></div>
+            <div style="display: flex; gap: 10px; flex: 1;">
+              <div style="width: 70px; border-radius: 10px; background: rgba(255,255,255,.05); display: flex; flex-direction: column; gap: 6px; padding: 8px;"><span style="height: 8px; border-radius: 4px; background: #FF4FA3;"></span><span style="height: 8px; border-radius: 4px; background: rgba(255,255,255,.15);"></span><span style="height: 8px; border-radius: 4px; background: rgba(255,255,255,.15);"></span><span style="height: 8px; border-radius: 4px; background: rgba(255,255,255,.15);"></span></div>
+              <div style="flex: 1; display: flex; flex-direction: column; gap: 8px;"><div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px;"><span style="height: 36px; border-radius: 8px; background: rgba(216,27,120,.25);"></span><span style="height: 36px; border-radius: 8px; background: rgba(255,255,255,.08);"></span><span style="height: 36px; border-radius: 8px; background: rgba(255,255,255,.08);"></span></div><span style="height: 10px; border-radius: 4px; background: rgba(255,255,255,.08);"></span><span style="height: 10px; border-radius: 4px; background: rgba(34,197,94,.3);"></span><span style="height: 10px; border-radius: 4px; background: rgba(255,255,255,.08);"></span><span style="height: 10px; border-radius: 4px; background: rgba(255,255,255,.08);"></span></div>
+            </div>
+          </div>
+          <div aria-hidden="true" style="display: flex; gap: 4px;"><span class="sync" style="width: 8px; height: 8px; border-radius: 50%; background: #FF7DB8;"></span><span class="sync" style="width: 8px; height: 8px; border-radius: 50%; background: #FF7DB8; animation-delay: .3s;"></span><span class="sync" style="width: 8px; height: 8px; border-radius: 50%; background: #FF7DB8; animation-delay: .6s;"></span></div>
+          <div class="glass rise d3" style="width: 120px; height: 240px; border-radius: 26px; padding: 12px 10px; display: flex; flex-direction: column; gap: 6px;">
+            <div style="height: 6px; width: 40px; border-radius: 3px; background: rgba(255,255,255,.2); margin: 0 auto 6px;"></div>
+            <span style="height: 24px; border-radius: 8px; background: rgba(216,27,120,.25);"></span>
+            <span style="height: 30px; border-radius: 8px; background: rgba(255,255,255,.08);"></span>
+            <span style="height: 30px; border-radius: 8px; background: rgba(34,197,94,.3);"></span>
+            <span style="height: 30px; border-radius: 8px; background: rgba(255,255,255,.08);"></span>
+            <span style="height: 30px; border-radius: 8px; background: rgba(255,255,255,.08);"></span>
+            <div style="margin-top: auto; display: flex; justify-content: space-between;"><span style="width: 14px; height: 14px; border-radius: 4px; background: #FF4FA3;"></span><span style="width: 14px; height: 14px; border-radius: 4px; background: rgba(255,255,255,.15);"></span><span style="width: 14px; height: 14px; border-radius: 4px; background: rgba(255,255,255,.15);"></span><span style="width: 14px; height: 14px; border-radius: 4px; background: rgba(255,255,255,.15);"></span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== Slide 13: End ===== -->
+      <div class="slide" data-s="s13" hidden>
+        <div style="grid-column: span 12; text-align: center; padding: 40px 16px; display: flex; flex-direction: column; align-items: center; gap: 18px;">
+          <div class="pop float" style="width: 96px; height: 96px; border-radius: 28px; background: linear-gradient(135deg,#D81B78,#7C1F9E); display: flex; align-items: center; justify-content: center; box-shadow: 0 30px 70px rgba(216,27,120,.45);">
+            <svg aria-hidden="true" width="46" height="46" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l2.4 5.2L20 8l-4 3.9.9 5.6L12 14.8 7.1 17.5 8 11.9 4 8l5.6-.8z"></path></svg>
+          </div>
+          <h2 class="rise d2" style="margin: 0; font-size: 52px; font-weight: 800; letter-spacing: -.03em;">Beyond the paycheck.</h2>
+          <p class="rise d3" style="margin: 0; font-size: 18px; color: #D9C9DF; max-width: 560px; line-height: 1.5;">Import. Review. Pay. Learn. Repeat in minutes, not evenings.</p>
+          <div class="rise d4" style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; max-width: 760px; width: 100%; margin-top: 8px;">
+            <div class="glass" style="padding: 12px; font-size: 12px; font-weight: 600;">Accounts</div><div class="glass" style="padding: 12px; font-size: 12px; font-weight: 600;">Import &amp; payroll</div><div class="glass" style="padding: 12px; font-size: 12px; font-weight: 600;">Paystubs &amp; send out</div><div class="glass" style="padding: 12px; font-size: 12px; font-weight: 600;">Insights</div>
+            <div class="glass" style="padding: 12px; font-size: 12px; font-weight: 600;">Models &amp; trends</div><div class="glass" style="padding: 12px; font-size: 12px; font-weight: 600;">Invoices</div><div class="glass" style="padding: 12px; font-size: 12px; font-weight: 600;">Leaderboard &amp; P&amp;L</div><div class="glass" style="padding: 12px; font-size: 12px; font-weight: 600;">Themes &amp; devices</div>
+          </div>
+          <div class="rise d5" style="font-size: 13px; color: #B8A6C2;">Spicy Sweet Payroll · desktop · iPhone · web</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- bottom nav -->
+  <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 28px 22px; position: relative; z-index: 2; flex-wrap: wrap;">
+    <button class="ss-nav" id="prev" aria-label="Previous slide">
+      <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"></path></svg>
+      Back
+    </button>
+    <div style="display: flex; align-items: center; gap: 0; flex-wrap: wrap; justify-content: center;">
+      <span id="dots" style="display:contents"></span>
+    </div>
+    <button class="ss-nav primary" id="next" aria-label="Next slide">
+      <span id="nextLabel">Start tour</span>
+      <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"></path></svg>
+    </button>
+  </div>
+</div>
+
+<script>
+(function(){
+  var order=["s1", "s2", "s3", "s4", "s5", "s6", "s7", "s7b", "s7c", "s8", "s9", "s10", "s11", "s12", "s13"], N=order.length, i=0, timer=null, secs=9;
+  var slides={}; document.querySelectorAll('.slide').forEach(function(el){slides[el.dataset.s]=el;});
+  var dots=document.getElementById('dots');
+  order.forEach(function(_,k){var b=document.createElement('button');b.className='ss-dot';b.setAttribute('aria-label','Go to slide '+(k+1));b.innerHTML='<span></span>';b.onclick=function(){go(k)};dots.appendChild(b);});
+  function go(n){
+    var cur=slides[order[i]]; cur.hidden=true;
+    i=(n+N)%N; var el=slides[order[i]];
+    var fresh=el.cloneNode(true); fresh.hidden=false; el.parentNode.replaceChild(fresh,el); slides[order[i]]=fresh;
+    document.getElementById('counter').textContent=(i+1)+' / '+N;
+    document.getElementById('nextLabel').textContent=i===0?'Start tour':(i===N-1?'Replay':'Next');
+    dots.querySelectorAll('.ss-dot').forEach(function(d,k){d.className='ss-dot'+(k===i?' on':'');});
+    history.replaceState(null,'','#'+(i+1));
+  }
+  document.getElementById('prev').onclick=function(){go(i-1)};
+  document.getElementById('next').onclick=function(){go(i+1)};
+  document.getElementById('auto').onclick=function(){
+    if(timer){clearInterval(timer);timer=null;this.textContent='Autoplay off';}
+    else{timer=setInterval(function(){go(i+1)},secs*1000);this.textContent='Autoplay on';}
+  };
+  document.addEventListener('keydown',function(e){
+    if(e.key==='ArrowRight'||e.key===' '){e.preventDefault();go(i+1)} else if(e.key==='ArrowLeft'){go(i-1)}
+  });
+  var start=parseInt(location.hash.slice(1),10); slides[order[0]].hidden=false; go(start>0&&start<=N?start-1:0);
+})();
+</script>
+</body>
+</html>
