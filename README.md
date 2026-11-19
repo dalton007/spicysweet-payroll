@@ -22,7 +22,7 @@ One React file, built into one HTML page, hosted on GitHub Pages, with Supabase 
 
 ```bash
 # hosted build (this is what gets committed and served)
-python3 tools/build.py src/app.jsx index.html --hosted --version 5.3.11 \
+python3 tools/build.py src/app.jsx index.html --hosted --version 5.3.12 \
   --supabase https://ctsbigebqkyggntjevqq.supabase.co sb_publishable_2jC3tz_LgP3P-439fIjUMA_P36MN8Q0
 git add -A && git commit -m "5.3.9: …" && git push
 ```

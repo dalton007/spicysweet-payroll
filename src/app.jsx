@@ -6182,8 +6182,9 @@ function useCountUp(value, ms) {
     }
     const dur = ms || 520;
     const t0 = performance.now();
-    const tick = (now) => {
-      const k = Math.min(1, (now - t0) / dur);
+    const tick = () => {
+      // read the clock here (not the frame timestamp) and clamp, so the count can never overshoot
+      const k = Math.max(0, Math.min(1, (performance.now() - t0) / dur));
       const eased = 1 - Math.pow(1 - k, 3);
       setShown(start + (target - start) * eased);
       if (k < 1) raf.current = requestAnimationFrame(tick);

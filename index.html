@@ -18,7 +18,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 
-<script>window.SPICY_VERSION = "5.3.11";</script>
+<script>window.SPICY_VERSION = "5.3.12";</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.1/dist/umd/supabase.js"></script>
 <script>window.SPICY_BACKEND = {"url": "https://ctsbigebqkyggntjevqq.supabase.co", "key": "sb_publishable_2jC3tz_LgP3P-439fIjUMA_P36MN8Q0"};</script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -5846,8 +5846,9 @@ function useCountUp(value, ms) {
         }
         const dur = ms || 520;
         const t0 = performance.now();
-        const tick = (now) => {
-            const k = Math.min(1, (now - t0) / dur);
+        const tick = () => {
+            // read the clock here (not the frame timestamp) and clamp, so the count can never overshoot
+            const k = Math.max(0, Math.min(1, (performance.now() - t0) / dur));
             const eased = 1 - Math.pow(1 - k, 3);
             setShown(start + (target - start) * eased);
             if (k < 1)
