@@ -4900,6 +4900,7 @@ function calcShift(shift, settings, headChatter, commissionPenalty = 0) {
   const hourlyPay = hours * rate + streamPay;
   const commissionPay = netRevenue * (commissionPct / 100);
   return {
+    date: shift.date || "",
     tier,
     rate,
     commissionPct,
