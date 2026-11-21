@@ -1470,6 +1470,250 @@ function CreatorImportDialog({ rep, settings, onCancel, onConfirm }) {
   );
 }
 
+// ---------- manager pay: its own workspace with biweekly pay periods ----------
+const MONTHS3 = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+// every date written in a label: ISO (2026-10-28), US (10/28/2026) or "Oct 28th, 2026"
+const datesIn = (txt) => {
+  const s = String(txt || ""); const out = [];
+  (s.match(/\d{4}-\d{2}-\d{2}/g) || []).forEach((d) => out.push(d));
+  (s.match(/\b(\d{1,2})\/(\d{1,2})\/(\d{4})\b/g) || []).forEach((d) => { const [m, dd, y] = d.split("/"); out.push(`${y}-${m.padStart(2, "0")}-${dd.padStart(2, "0")}`); });
+  const re = /\b([A-Za-z]{3})[a-z]*\.?\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(\d{4})/g; let m;
+  while ((m = re.exec(s))) { const mi = MONTHS3.indexOf(m[1].toLowerCase()); if (mi >= 0) out.push(`${m[3]}-${String(mi + 1).padStart(2, "0")}-${m[2].padStart(2, "0")}`); }
+  return out.sort();
+};
+// the day an invoice's work ended (falls back to the invoice date)
+const invoiceWorkEnd = (inv) => {
+  const fromLines = (inv.lines || []).flatMap((l) => datesIn(l.period));
+  const ds = [...datesIn(inv.payPeriod), ...fromLines];
+  return ds.length ? ds[ds.length - 1] : inv.date || "";
+};
+const inRange = (d, p) => !!d && d >= p.start && d <= p.end;
+const weekPayroll = (snap) => Object.values((snap && snap.chatters) || {}).reduce((a, c) => a + num(c.gross), 0);
+const newManagerPeriod = (settings, history) => {
+  const list = settings.managerPeriods || [];
+  let start;
+  if (list.length) start = addDays([...list].sort((a, b) => (a.end < b.end ? 1 : -1))[0].end, 1);
+  else {
+    const rep = (settings.creatorReports || []).slice().sort((a, b) => (a.end < b.end ? 1 : -1))[0];
+    const wk = (history || []).map((h) => h.weekStart).filter(Boolean).sort();
+    start = (rep && rep.start) || (wk.length ? wk[wk.length - 1] : addDays(todayStr(settings), -13));
+  }
+  return { id: uid(), start, end: addDays(start, 13), rate: num(settings.managerRate) || 0, status: "open", paidDate: "", paidMethod: "", inv: {}, wk: {}, live: null, income: [], expenses: [], note: "" };
+};
+function calcManagerPeriod(p, settings, history, live) {
+  const invoices = (settings.modelInvoices || []).map((inv) => {
+    const end = invoiceWorkEnd(inv);
+    const auto = inRange(end, p);
+    const on = p.inv && p.inv[inv.id] != null ? !!p.inv[inv.id] : auto;
+    return { inv, end, auto, on, total: invoiceTotals(inv).total };
+  }).sort((a, b) => (b.auto - a.auto) || (a.end < b.end ? 1 : -1));
+  const weeks = (history || []).filter((h) => h.weekStart).map((h) => {
+    const auto = inRange(h.weekStart, p);
+    const on = p.wk && p.wk[h.weekStart] != null ? !!p.wk[h.weekStart] : auto;
+    return { key: h.weekStart, label: h.payPeriod || h.weekStart, total: weekPayroll(h), auto, on, saved: true };
+  }).sort((a, b) => (b.auto - a.auto) || (a.key < b.key ? 1 : -1));
+  // this week, if it isn't saved yet
+  if (live && live.start && !weeks.some((w) => w.key === live.start)) {
+    const auto = inRange(live.start, p);
+    const on = p.live != null ? !!p.live : auto;
+    weeks.unshift({ key: "live", label: (live.label || live.start) + " (this week, not saved yet)", total: live.total, auto, on, saved: false });
+  }
+  const invTotal = invoices.filter((r) => r.on).reduce((a, r) => a + r.total, 0);
+  const income = (p.income || []).reduce((a, r) => a + num(r.amount), 0);
+  const payroll = weeks.filter((w) => w.on).reduce((a, w) => a + w.total, 0);
+  const expenses = (p.expenses || []).reduce((a, r) => a + num(r.amount), 0);
+  const revenue = invTotal + income;
+  const profit = revenue - payroll - expenses;
+  const commission = Math.max(0, profit) * (num(p.rate) / 100);
+  return { invoices, weeks, invTotal, income, revenue, payroll, expenses, profit, commission, owners: profit - commission, margin: revenue > 0 ? (profit / revenue) * 100 : null };
+}
+const managerStatementText = (p, c, settings) => [
+  `${settings.companyName || "Spicy Sweet"} — manager commission`,
+  `Period: ${prettyDate(p.start)} – ${prettyDate(p.end)}`,
+  `Paid to: ${settings.managerName || "—"}`,
+  "",
+  "Model invoices:",
+  ...c.invoices.filter((r) => r.on).map((r) => `  ${r.inv.number || ""} ${r.inv.model || "—"}: ${fmt(r.total)}`),
+  ...(p.income || []).filter((r) => num(r.amount)).map((r) => `  ${r.label || "Other income"}: ${fmt(num(r.amount))}`),
+  `  Total: ${fmt(c.revenue)}`,
+  "",
+  "Chatter payroll:",
+  ...c.weeks.filter((w) => w.on).map((w) => `  ${w.label}: −${fmt(w.total)}`),
+  ...(p.expenses || []).filter((r) => num(r.amount)).map((r) => `Less ${r.label || "expense"}: −${fmt(num(r.amount))}`),
+  `Agency profit: ${fmt(c.profit)}`,
+  "",
+  `Commission at ${num(p.rate)}%: ${fmt(c.commission)}`,
+  ...(p.status === "paid" ? [`Paid${p.paidMethod ? " via " + p.paidMethod : ""}${p.paidDate ? " on " + prettyDate(p.paidDate) : ""}`] : []),
+].join("\n");
+
+function ManagerPayView({ settings, setSettings, history, live, canEdit, onCopy }) {
+  const periods = settings.managerPeriods || [];
+  const sorted = [...periods].sort((a, b) => (a.start < b.start ? 1 : -1));
+  const [openId, setOpenId] = useState(sorted[0] ? sorted[0].id : null);
+  const [showAll, setShowAll] = useState(false);
+  const cur = periods.find((p) => p.id === openId) || sorted[0] || null;
+  // always work from the latest saved list, so quick edits in a row never undo each other
+  const edit = (fn) => setSettings((s) => ({ ...s, managerPeriods: fn(s.managerPeriods || []) }));
+  const patch = (id, ch) => edit((list) => list.map((p) => (p.id === id ? { ...p, ...(typeof ch === "function" ? ch(p) : ch) } : p)));
+  const add = () => { const p = newManagerPeriod(settings, history); edit((list) => [...list, p]); setOpenId(p.id); playSfx("open"); };
+  const remove = (id) => { edit((list) => list.filter((p) => p.id !== id)); setOpenId(null); playSfx("remove"); };
+  const c = cur ? calcManagerPeriod(cur, settings, history, live) : null;
+  const all = useMemo(() => periods.map((p) => [p.id, calcManagerPeriod(p, settings, history, live)]), [periods, settings, history, live]);
+  const calcOf = (id) => (all.find(([k]) => k === id) || [])[1];
+  const paidTotal = all.reduce((a, [id, x]) => a + ((periods.find((p) => p.id === id) || {}).status === "paid" ? x.commission : 0), 0);
+  const owedTotal = all.reduce((a, [id, x]) => a + ((periods.find((p) => p.id === id) || {}).status !== "paid" ? x.commission : 0), 0);
+  const ro = !canEdit || (cur && cur.status === "paid");
+  const lineList = (key, label, placeholder) => (
+    <div className="space-y-1.5">
+      {(cur[key] || []).map((r) => (
+        <div key={r.id} className="flex items-center gap-2">
+          <input className={inputCls} style={{ flex: 1, minWidth: 0 }} disabled={ro} placeholder={placeholder} value={r.label || ""} onChange={(e) => patch(cur.id, (p) => ({ [key]: p[key].map((x) => (x.id === r.id ? { ...x, label: e.target.value } : x)) }))} />
+          <input className={inputCls + " text-right tabular"} style={{ width: 96, flex: "none" }} disabled={ro} inputMode="decimal" placeholder="0.00" value={r.amount || ""} onChange={(e) => patch(cur.id, (p) => ({ [key]: p[key].map((x) => (x.id === r.id ? { ...x, amount: e.target.value } : x)) }))} />
+          {!ro && <button className="ss-btn ss-btn-ghost px-2 py-1" aria-label="Remove line" onClick={() => patch(cur.id, (p) => ({ [key]: p[key].filter((x) => x.id !== r.id) }))}>✕</button>}
+        </div>
+      ))}
+      {!ro && <button className="ss-btn ss-btn-ghost py-1 text-[12px]" onClick={() => patch(cur.id, (p) => ({ [key]: [...(p[key] || []), { id: uid(), label: "", amount: "" }] }))}><Icon name="plus" size={13} /> {label}</button>}
+    </div>
+  );
+  return (
+    <div className="max-w-6xl mx-auto space-y-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 ss-stagger">
+        <div className="ss-kpi is-pink"><p className="ss-eyebrow">This period's commission</p><Money value={c ? c.commission : 0} className="v block" /></div>
+        <div className="ss-kpi"><p className="ss-eyebrow">Still owed</p><p className="v text-slate-900">{fmt(owedTotal)}</p><p className="text-[11px] text-slate-400 mt-1.5">{periods.filter((p) => p.status !== "paid").length} open period{periods.filter((p) => p.status !== "paid").length === 1 ? "" : "s"}</p></div>
+        <div className="ss-kpi"><p className="ss-eyebrow">Paid so far</p><p className="v text-slate-900">{fmt(paidTotal)}</p><p className="text-[11px] text-slate-400 mt-1.5">{periods.filter((p) => p.status === "paid").length} paid period{periods.filter((p) => p.status === "paid").length === 1 ? "" : "s"}</p></div>
+        <div className="ss-kpi"><p className="ss-eyebrow">Manager</p><p className="v text-slate-900 truncate">{settings.managerName || "—"}</p><p className="text-[11px] text-slate-400 mt-1.5">Default rate {num(settings.managerRate)}% of profit</p></div>
+      </div>
+      <div className="ss-mgr-layout">
+        <aside className="ss-card p-3 space-y-2 self-start">
+          <div className="flex items-center gap-2 px-1">
+            <p className="ss-eyebrow flex-1">Pay periods</p>
+            {canEdit && <button onClick={add} className="ss-btn ss-btn-dark py-1 px-2.5 text-[12px]"><Icon name="plus" size={13} /> New</button>}
+          </div>
+          {!sorted.length && <p className="text-[12.5px] text-slate-500 px-1 pb-2">No periods yet. {canEdit ? "Hit New to start the first two-week period." : "An owner starts each period."}</p>}
+          {sorted.map((p) => {
+            const x = calcOf(p.id) || {};
+            return (
+              <button key={p.id} onClick={() => setOpenId(p.id)} className={`ss-mgr-period ${cur && cur.id === p.id ? "is-on" : ""}`}>
+                <span className="block text-[13px] font-bold text-slate-800">{prettyDate(p.start)} – {prettyDate(p.end)}</span>
+                <span className="flex items-center gap-2 mt-0.5">
+                  <span className="tabular text-[12px] text-slate-500">{fmt(x.commission || 0)}</span>
+                  <span className={`ss-chip ${p.status === "paid" ? "is-mint" : ""}`} style={{ padding: "1px 8px", fontSize: 10.5 }}>{p.status === "paid" ? "Paid" : "Open"}</span>
+                </span>
+              </button>
+            );
+          })}
+        </aside>
+        {cur && c ? (
+          <section className="space-y-4 min-w-0">
+            <div className="ss-card p-5">
+              <div className="flex flex-wrap items-end gap-3">
+                <label className="block"><span className="ss-eyebrow block mb-1">Starts</span><input type="date" className={inputCls} disabled={ro} value={cur.start} onChange={(e) => patch(cur.id, { start: e.target.value })} /></label>
+                <label className="block"><span className="ss-eyebrow block mb-1">Ends</span><input type="date" className={inputCls} disabled={ro} value={cur.end} onChange={(e) => patch(cur.id, { end: e.target.value })} /></label>
+                {!ro && (
+                  <div className="flex gap-1.5 pb-0.5">
+                    <button className="ss-btn ss-btn-ghost py-1.5 text-[12px]" onClick={() => patch(cur.id, (p) => ({ end: addDays(p.start, 6) }))}>1 week</button>
+                    <button className="ss-btn ss-btn-ghost py-1.5 text-[12px]" onClick={() => patch(cur.id, (p) => ({ end: addDays(p.start, 13) }))}>2 weeks</button>
+                  </div>
+                )}
+                <label className="block"><span className="ss-eyebrow block mb-1">Rate</span>
+                  <span className="flex items-center gap-1"><input className={inputCls + " text-right tabular"} style={{ width: 70 }} disabled={ro} inputMode="decimal" value={cur.rate} onChange={(e) => patch(cur.id, { rate: e.target.value })} /><span className="text-sm text-slate-500">% of profit</span></span>
+                </label>
+                <div className="ml-auto text-right">
+                  <p className="ss-eyebrow">Commission</p>
+                  <Money value={c.commission} className="font-display text-3xl font-extrabold text-rose-600" />
+                </div>
+              </div>
+              {cur.end < cur.start && <p className="text-[12px] text-red-600 mt-2">The end date is before the start date.</p>}
+            </div>
+
+            <div className="ss-mgr-two">
+              <div className="ss-card p-5 space-y-2 min-w-0">
+                <div className="flex items-baseline gap-2"><p className="ss-eyebrow flex-1">Model invoices</p><span className="tabular font-bold">{fmt(c.invTotal)}</span></div>
+                <p className="text-[11.5px] text-slate-500">Invoices for work that ended inside this period are ticked. Tick or untick any of them.</p>
+                <ul className="space-y-1 max-h-[340px] overflow-y-auto pr-1">
+                  {c.invoices.filter((r) => showAll || r.auto || r.on).map((r) => (
+                    <li key={r.inv.id}>
+                      <label className="flex items-center gap-2 text-[13px] cursor-pointer py-0.5">
+                        <input type="checkbox" className="h-4 w-4 accent-pink-600 shrink-0" disabled={ro} checked={r.on} onChange={(e) => patch(cur.id, (p) => ({ inv: { ...(p.inv || {}), [r.inv.id]: e.target.checked } }))} />
+                        <span className="flex-1 min-w-0 truncate"><span className="font-semibold">{r.inv.model || "—"}</span> <span className="text-slate-400">{r.inv.number} · {r.end ? prettyDate(r.end) : "no date"}</span></span>
+                        <span className={`ss-chip`} style={{ padding: "1px 7px", fontSize: 10 }}>{INVOICE_STATUS[r.inv.status] || r.inv.status}</span>
+                        <span className="tabular w-24 text-right">{fmt(r.total)}</span>
+                      </label>
+                    </li>
+                  ))}
+                  {!c.invoices.length && <li className="text-[12.5px] text-slate-500">No model invoices yet — make them on the Invoices page.</li>}
+                </ul>
+                {c.invoices.some((r) => !r.auto && !r.on) && <button className="text-[12px] font-semibold text-pink-700" onClick={() => setShowAll((v) => !v)}>{showAll ? "Hide invoices from other periods" : `Show ${c.invoices.filter((r) => !r.auto && !r.on).length} invoices from other periods`}</button>}
+                <p className="ss-eyebrow pt-2">Other income</p>
+                {lineList("income", "Add income", "e.g. Fansly payout")}
+              </div>
+              <div className="ss-card p-5 space-y-2 min-w-0">
+                <div className="flex items-baseline gap-2"><p className="ss-eyebrow flex-1">Chatter payroll</p><span className="tabular font-bold text-red-600">−{fmt(c.payroll)}</span></div>
+                <p className="text-[11.5px] text-slate-500">Saved weeks that start inside this period are ticked. Hit "Save this week" on Payroll so each week lands here.</p>
+                <ul className="space-y-1">
+                  {c.weeks.map((w) => (
+                    <li key={w.key}>
+                      <label className="flex items-center gap-2 text-[13px] cursor-pointer py-0.5">
+                        <input type="checkbox" className="h-4 w-4 accent-pink-600 shrink-0" disabled={ro} checked={w.on} onChange={(e) => patch(cur.id, (p) => (w.key === "live" ? { live: e.target.checked } : { wk: { ...(p.wk || {}), [w.key]: e.target.checked } }))} />
+                        <span className={`flex-1 min-w-0 truncate ${w.saved ? "" : "text-amber-700"}`}>{w.label}</span>
+                        <span className="tabular w-24 text-right">{fmt(w.total)}</span>
+                      </label>
+                    </li>
+                  ))}
+                  {!c.weeks.length && <li className="text-[12.5px] text-slate-500">No saved weeks yet.</li>}
+                </ul>
+                <p className="ss-eyebrow pt-2">Other expenses</p>
+                {lineList("expenses", "Add expense", "e.g. software, ads")}
+                {!ro && (settings.otherExpenses || []).length > 0 && (
+                  <button className="text-[12px] font-semibold text-pink-700" onClick={() => patch(cur.id, (p) => ({ expenses: [...(p.expenses || []), ...(settings.otherExpenses || []).map((x) => ({ id: uid(), label: x.label || x.name || "Expense", amount: x.amount }))] }))}>Copy this week's expenses from Agency P&L</button>
+                )}
+              </div>
+            </div>
+
+            <div className="ss-card p-5">
+              <div className="space-y-1.5 text-sm max-w-md">
+                <div className="flex justify-between"><span className="text-slate-600">Model invoices &amp; income</span><span className="tabular font-semibold">{fmt(c.revenue)}</span></div>
+                <div className="flex justify-between"><span className="text-slate-600">Less chatter payroll</span><span className="tabular text-red-600">−{fmt(c.payroll)}</span></div>
+                {c.expenses > 0 && <div className="flex justify-between"><span className="text-slate-600">Less other expenses</span><span className="tabular text-red-600">−{fmt(c.expenses)}</span></div>}
+                <div className="flex justify-between border-t border-pink-100 pt-1.5 font-bold"><span>Agency profit{c.margin != null && <span className="text-slate-400 font-normal text-[11px]"> · {c.margin.toFixed(0)}% margin</span>}</span><span className="tabular">{fmt(c.profit)}</span></div>
+                <div className="flex justify-between"><span className="text-slate-600">{settings.managerName || "Manager"} at {num(cur.rate)}%</span><span className="tabular font-bold text-rose-600">{fmt(c.commission)}</span></div>
+                <div className="flex justify-between text-slate-500"><span>Left for owners</span><span className="tabular">{fmt(c.owners)}</span></div>
+                {c.profit < 0 && <p className="text-[11.5px] text-amber-700">Profit is negative, so no commission is due this period.</p>}
+              </div>
+              <div className="flex flex-wrap items-center gap-2 mt-4 pt-4 border-t border-pink-100">
+                <button className="ss-btn ss-btn-ghost" onClick={() => onCopy(managerStatementText(cur, c, settings))}>Copy statement</button>
+                {canEdit && cur.status !== "paid" && (
+                  <>
+                    <select className={inputCls} style={{ width: 150 }} value={cur.paidMethod || ""} onChange={(e) => patch(cur.id, { paidMethod: e.target.value })}>
+                      <option value="">Method…</option>
+                      {PAY_METHODS.map((m) => <option key={m} value={m}>{m}</option>)}
+                    </select>
+                    <button className="ss-btn ss-btn-primary ss-sheen" onClick={() => { patch(cur.id, { status: "paid", paidDate: todayStr(settings) }); playSfx("paid"); }}><Icon name="check" size={14} /> Mark paid</button>
+                  </>
+                )}
+                {cur.status === "paid" && (
+                  <>
+                    <span className="ss-chip is-mint">Paid{cur.paidMethod ? " via " + cur.paidMethod : ""}{cur.paidDate ? " on " + prettyDate(cur.paidDate) : ""}</span>
+                    {canEdit && <button className="ss-btn ss-btn-ghost" onClick={() => patch(cur.id, { status: "open", paidDate: "" })}>Undo paid</button>}
+                  </>
+                )}
+                {canEdit && cur.status !== "paid" && <button className="ss-btn ss-btn-ghost ml-auto text-red-600" onClick={() => remove(cur.id)}>Delete period</button>}
+              </div>
+              {cur.status === "paid" && canEdit && <p className="text-[11.5px] text-slate-500 mt-2">Paid periods are locked so the statement stays as it was. Undo paid to change it.</p>}
+            </div>
+          </section>
+        ) : (
+          <div className="ss-card p-8 text-center">
+            <p className="font-display text-xl font-extrabold">Manager pay, two weeks at a time</p>
+            <p className="text-sm text-slate-500 mt-1.5 max-w-md mx-auto">Each period adds up the model invoices and saved payroll weeks inside its dates, takes off expenses, and works out the commission. Dates, rate and what counts can all be adjusted.</p>
+            {canEdit && <button onClick={add} className="ss-btn ss-btn-primary ss-sheen mt-4"><Icon name="plus" size={14} /> Start the first period</button>}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // the Models tab block: trends from the creator reports
 function CreatorTrendsPanel({ settings, setSettings, onCopy, onInvoiceAll }) {
   const t = useMemo(() => buildCreatorTrends(settings), [settings]);
@@ -5000,6 +5244,7 @@ const VIEWS = [
   { id: "board", label: "Leaderboard", short: "Board" },
   { id: "history", label: "History", needsAny: ["weekBrowser", "monthRollup", "trends", "ytdTotals"] },
   { id: "pnl", label: "Agency P&L", short: "P&L", needsAny: ["managerCommission", "marginView"] },
+  { id: "manager", label: "Manager pay", short: "Mgr", needsAny: ["managerCommission"] },
   { id: "invoices", label: "Invoices" },
   { id: "settings", label: "Settings" },
 ];
@@ -5327,6 +5572,7 @@ const ICON_PATHS = {
   board: "M8 4h8v5a4 4 0 0 1-8 0zM8 6H5a3 3 0 0 0 3 4M16 6h3a3 3 0 0 1-3 4M12 13v3M8 20h8M9 16h6l1 4H8z",
   history: "M12 8v4l3 2M3.05 11a9 9 0 1 1 .5 4M3 16v-5h5",
   pnl: "M12 3v9h9M21 12A9 9 0 1 1 12 3",
+  manager: "M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 21v-1a6 6 0 0 1 6-6h2M17 14v7M14.5 16.5c0-1 1.1-1.5 2.5-1.5s2.5.6 2.5 1.5-1.1 1.4-2.5 1.5-2.5.6-2.5 1.5 1.1 1.5 2.5 1.5 2.5-.5 2.5-1.5",
   settings: "M4 6h10M18 6h2M4 12h2M10 12h10M4 18h8M16 18h4M14 4v4M8 10v4M12 16v4",
   import: "M12 16V4M7 9l5-5 5 5M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3",
   paste: "M9 4h6v3H9zM15 5h2a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h2M9 12h6M9 16h4",
@@ -5952,6 +6198,14 @@ function AppStyles() {
       .ss-dot-status.is-sent { background: var(--halo); }
       .ss-dot-status.is-paid { background: var(--mint); }
       .ss-inv-layout { display: grid; gap: 20px; align-items: start; }
+      .ss-mgr-layout { display: grid; gap: 16px; align-items: start; grid-template-columns: minmax(0, 1fr); }
+      .ss-mgr-two { display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr); }
+      @media (min-width: 768px) { .ss-mgr-two { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+      @media (min-width: 1024px) { .ss-mgr-layout { grid-template-columns: 260px minmax(0, 1fr); } }
+      .ss-mgr-period { display: block; width: 100%; text-align: left; padding: 9px 11px; border-radius: 12px; border: 1px solid transparent; transition: background var(--t-s), border-color var(--t-s); }
+      .ss-mgr-period:hover { background: rgba(236,42,134,.06); transform: none; }
+      .ss-mgr-period.is-on { background: rgba(236,42,134,.1); border-color: rgba(236,42,134,.35); }
+      html[data-mode="dark"] .ss-mgr-period.is-on { background: rgba(249,111,176,.14); border-color: rgba(249,111,176,.4); }
       @media (min-width: 1024px) { .ss-inv-layout { grid-template-columns: 300px minmax(0, 1fr); } }
       .ss-inv-edit { display: grid; gap: 20px; align-items: start; }
       @media (min-width: 1400px) { .ss-inv-edit { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } }
@@ -8284,6 +8538,10 @@ export default function PaystubApp({ sb = null, me = null, onSignOut = null } = 
       otherExpenses: (s.otherExpenses || []).filter((r) => r.id !== id),
     }));
 
+  const liveWeek = useMemo(() => {
+    const ds = employees.flatMap((e) => e.shifts.map((sh) => sh.date)).filter(Boolean).sort();
+    return ds.length ? { start: ds[0], label: settings.payPeriod || ds[0], total: payrollTotal } : null;
+  }, [employees, settings.payPeriod, payrollTotal]);
   const managerCalc = useMemo(() => {
     const rows = settings.invoices || [];
     // invoices for this pay period, plus recent ones from a biweekly creator report
@@ -8468,6 +8726,8 @@ export default function PaystubApp({ sb = null, me = null, onSignOut = null } = 
             ? [(historyTabs.find(([k]) => k === historyTabOn) || ["", "History"])[1], "Saved weeks and how they add up"]
             : view === "pnl"
               ? ["Agency P&L", settings.payPeriod || "This week"]
+            : view === "manager"
+              ? ["Manager pay", "Commission by pay period — dates, rate and what counts are yours to adjust"]
               : ["Settings", "Pay rules, roster, goals and what the app keeps"];
 
   // checkbox flips get a tiny click (delegated so every switch in the app counts)
@@ -9359,6 +9619,15 @@ export default function PaystubApp({ sb = null, me = null, onSignOut = null } = 
             onInvoicePdf={invoicePdf}
             onAllPdfs={saveAllPdfs}
             canPng={true}
+          />
+        ) : view === "manager" ? (
+          <ManagerPayView
+            settings={settings}
+            setSettings={setSettings}
+            history={history}
+            live={liveWeek}
+            canEdit={canEditRules}
+            onCopy={async (txt) => { try { await navigator.clipboard.writeText(txt); setCopyMsg("Manager statement copied."); } catch (err) { setCopyMsg("Couldn't copy automatically."); } }}
           />
         ) : view === "invoices" ? (
           <InvoicesView
@@ -12316,6 +12585,9 @@ export default function PaystubApp({ sb = null, me = null, onSignOut = null } = 
                       className="ss-lift w-full rounded-lg border border-pink-200 bg-white hover:bg-pink-50 text-pink-700 px-4 py-2.5 text-sm font-bold"
                     >
                       Copy {settings.managerName || "manager"}'s statement ({fmt(managerCalc.commission)})
+                    </button>
+                    <button onClick={() => setView("manager")} className="w-full text-[12px] font-semibold text-pink-700 py-1">
+                      Two-week commission periods → Manager pay
                     </button>
                   </div>
                 </div>
