@@ -2785,6 +2785,12 @@ function buildWeekSnapshot(employees, settings, prevWeek) {
       prize: round2(c.prizeAmount),
       adjust: round2(c.adjustTotal),
       head: round2(c.headChatterPay),
+      // the paystub itself, so chatters can look back at it
+      stub: {
+        hourly: round2(c.hourlyTotal),
+        commission: round2(c.commissionTotal),
+        shifts: worked.map((k) => ({ date: k.date || "", hours: round2(k.hours), revenue: round2(k.revenue), tier: k.tier, pay: round2(k.hourlyPay + k.commissionPay) })),
+      },
     };
   });
   const dates = employees
@@ -6198,6 +6204,15 @@ function AppStyles() {
       .ss-dot-status.is-sent { background: var(--halo); }
       .ss-dot-status.is-paid { background: var(--mint); }
       .ss-inv-layout { display: grid; gap: 20px; align-items: start; }
+      .ss-swipe { display: flex; align-items: flex-start; overflow-x: auto; scroll-snap-type: x mandatory; scroll-behavior: smooth; -webkit-overflow-scrolling: touch; scrollbar-width: none; border-radius: 18px; }
+      .ss-swipe::-webkit-scrollbar { display: none; }
+      .ss-swipe-slide { flex: 0 0 100%; min-width: 0; scroll-snap-align: start; scroll-snap-stop: always; }
+      .ss-swipe-dot { width: 7px; height: 7px; border-radius: 99px; background: rgba(236,42,134,.25); transition: width var(--t-s), background var(--t-s); padding: 0; }
+      .ss-swipe-dot.is-on { width: 22px; background: #EC2A86; }
+      .ss-dot-good { flex: none; width: 18px; height: 18px; border-radius: 50%; background: var(--mint); color: #fff; font-size: 11px; font-weight: 800; display: inline-flex; align-items: center; justify-content: center; margin-top: 1px; }
+      .ss-good { border-top: 3px solid var(--mint); }
+      .ss-work { border-top: 3px solid #EFC838; }
+      .ss-preview-bar { position: sticky; top: 0; z-index: 30; text-align: center; font-size: 12.5px; font-weight: 700; padding: 8px 12px; background: #1C1126; color: #FFD3E8; }
       .ss-mgr-layout { display: grid; gap: 16px; align-items: start; grid-template-columns: minmax(0, 1fr); }
       .ss-mgr-two { display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr); }
       @media (min-width: 768px) { .ss-mgr-two { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
@@ -6713,18 +6728,172 @@ function MiniPaystub({ emp, settings, prize }) {
   );
 }
 
-function LimitedApp({ sb, profile, onSignOut }) {
+// ---------- chatter's own view: paystub history deck + how they're doing ----------
+// insight text is written for managers ("they"); chatters read it as "you"
+const toYou = (t) =>
+  String(t || "")
+    .replace(/\bThey're\b/g, "You're").replace(/\bthey're\b/g, "you're")
+    .replace(/\bThey aren't\b/g, "You aren't").replace(/\bthey aren't\b/g, "you aren't")
+    .replace(/\bThey\b/g, "You").replace(/\bthey\b/g, "you")
+    .replace(/\btheir\b/g, "your").replace(/\bTheir\b/g, "Your");
+function PastPaystub({ row, week }) {
+  const st = row.stub || null;
+  const extras = num(row.bonus) + num(row.head) + num(row.prize) + num(row.adjust);
+  const base = st ? num(st.hourly) + num(st.commission) : Math.max(0, num(row.gross) - extras);
+  return (
+    <div className="ss-card overflow-hidden">
+      <div className="bg-gradient-to-r from-slate-800 to-pink-700 text-white px-5 py-4 flex items-center justify-between gap-3">
+        <div>
+          <p className="text-[10px] font-bold uppercase tracking-[.14em] text-white/70">Earnings statement · saved</p>
+          <p className="font-display text-xl font-extrabold leading-tight">{row.name}</p>
+          <p className="text-[12px] text-white/80">{week.payPeriod || week.weekStart}{row.team ? ` · ${teamEmoji(row.team)} ${row.team}` : ""}</p>
+        </div>
+        <img src={LOGO} alt="" style={{ height: 48, width: "auto" }} />
+      </div>
+      <div className="p-5 space-y-3">
+        {st && st.shifts && st.shifts.length ? (
+          <table className="w-full text-[12.5px] tabular">
+            <thead><tr className="text-[10px] uppercase tracking-[.08em] text-slate-400 text-left"><th className="py-1">Shift</th><th className="py-1 text-right">Sales</th><th className="py-1 text-right">Tier</th><th className="py-1 text-right">Pay</th></tr></thead>
+            <tbody>
+              {st.shifts.map((k, i) => (
+                <tr key={i} className="border-t border-pink-50">
+                  <td className="py-1.5 text-slate-700">{k.date || "—"} · {k.hours}h</td>
+                  <td className="py-1.5 text-right text-slate-700">{fmt(k.revenue)}</td>
+                  <td className="py-1.5 text-right">{k.tier >= 0 ? <span className="rounded-full bg-pink-100 text-pink-700 px-1.5 py-0.5 text-[10px] font-bold">T{k.tier + 1}</span> : <span className="text-slate-300">—</span>}</td>
+                  <td className="py-1.5 text-right font-bold text-slate-900">{fmt(k.pay)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : (
+          <div className="grid grid-cols-3 gap-2 text-center">
+            {[["Sales", fmt(row.rev || 0)], ["Hours", round2(num(row.hours)) + "h"], ["Targets", `${row.hits || 0}/${row.shifts || 0}`]].map(([l, v]) => (
+              <div key={l} className="rounded-xl bg-pink-50 px-2 py-2.5"><p className="ss-eyebrow">{l}</p><p className="font-display font-extrabold tabular mt-0.5">{v}</p></div>
+            ))}
+          </div>
+        )}
+        <div className="border-t border-pink-100 pt-3 space-y-1 text-[13px] tabular">
+          {st ? (
+            <>
+              <div className="flex justify-between"><span className="text-slate-600">Hourly pay ({round2(num(row.hours))} hrs)</span><span>{fmt(st.hourly)}</span></div>
+              <div className="flex justify-between"><span className="text-slate-600">Commission</span><span>{fmt(st.commission)}</span></div>
+            </>
+          ) : (
+            <div className="flex justify-between"><span className="text-slate-600">Hourly + commission ({round2(num(row.hours))} hrs)</span><span>{fmt(base)}</span></div>
+          )}
+          {num(row.bonus) > 0 && <div className="flex justify-between"><span className="text-slate-600">Goal bonuses</span><span>{fmt(row.bonus)}</span></div>}
+          {num(row.head) > 0 && <div className="flex justify-between"><span className="text-slate-600">Head chatter pay</span><span>{fmt(row.head)}</span></div>}
+          {num(row.prize) > 0 && <div className="flex justify-between"><span className="text-slate-600">Leaderboard prize</span><span>{fmt(row.prize)}</span></div>}
+          {num(row.adjust) !== 0 && <div className="flex justify-between"><span className="text-slate-600">Adjustments</span><span className={num(row.adjust) < 0 ? "text-red-600" : "text-emerald-700"}>{num(row.adjust) < 0 ? "−" : "+"}{fmt(Math.abs(num(row.adjust)))}</span></div>}
+          <div className="flex justify-between border-t border-pink-200 pt-2 mt-1 text-base font-bold"><span>Gross pay</span><span className="text-rose-600 font-display text-xl">{fmt(row.gross)}</span></div>
+        </div>
+      </div>
+    </div>
+  );
+}
+// swipe left/right through every paystub; the newest is first
+function PaystubDeck({ slides }) {
+  const ref = useRef(null);
+  const [i, setI] = useState(0);
+  const go = (n) => {
+    const el = ref.current; if (!el) return;
+    const k = Math.max(0, Math.min(slides.length - 1, n));
+    el.scrollTo({ left: k * el.clientWidth, behavior: "smooth" });
+  };
+  const onScroll = () => { const el = ref.current; if (el && el.clientWidth) setI(Math.round(el.scrollLeft / el.clientWidth)); };
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-2">
+        <button className="ss-btn ss-btn-ghost px-2.5 py-1.5" aria-label="Newer paystub" disabled={i === 0} onClick={() => go(i - 1)}><Icon name="chevL" size={16} /></button>
+        <div className="flex-1 text-center min-w-0">
+          <p className="text-[13px] font-bold text-slate-900 truncate">{(slides[i] || {}).label}</p>
+          <p className="text-[11px] text-slate-500">{slides.length > 1 ? `${i + 1} of ${slides.length} · swipe for ${i === 0 ? "older" : "more"} paystubs` : "Your saved paystubs will appear here each week"}</p>
+        </div>
+        <button className="ss-btn ss-btn-ghost px-2.5 py-1.5" aria-label="Older paystub" disabled={i >= slides.length - 1} onClick={() => go(i + 1)}><Icon name="chevR" size={16} /></button>
+      </div>
+      <div ref={ref} onScroll={onScroll} className="ss-swipe" role="region" aria-label="Paystubs">
+        {slides.map((s) => <div key={s.key} className="ss-swipe-slide">{s.node}</div>)}
+      </div>
+      {slides.length > 1 && (
+        <div className="flex justify-center gap-1.5 pt-1">
+          {slides.map((s, k) => <button key={s.key} aria-label={`Go to ${s.label}`} onClick={() => go(k)} className={`ss-swipe-dot ${k === i ? "is-on" : ""}`} />)}
+        </div>
+      )}
+    </div>
+  );
+}
+// strengths and what to work on: this week's reads plus how this week compares with their own saved weeks
+function chatterProgress(me, ins, past) {
+  const good = [], work = [];
+  (ins ? ins.wins : []).filter((w) => !/^No red flags/.test(w)).forEach((w) => good.push({ t: toYou(w) }));
+  (ins ? ins.tips : []).forEach((x) => work.push({ t: x.t, b: toYou(x.b) }));
+  const rows = past.filter((r) => num(r.shifts) > 0);
+  if (ins && rows.length) {
+    const avg = (f) => { const v = rows.map(f).filter((x) => x != null && isFinite(x)); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null; };
+    const cmp = (label, cur, base, money, lowerIsBetter) => {
+      if (cur == null || base == null || base <= 0) return;
+      const ch = ((cur - base) / base) * 100;
+      const better = lowerIsBetter ? ch <= -10 : ch >= 10;
+      const worse = lowerIsBetter ? ch >= 10 : ch <= -10;
+      const f = (v) => (money ? fmt(v) : label === "Response time" ? v.toFixed(1) + " min" : v.toFixed(1) + "%");
+      const txt = `${label}: ${f(cur)} this week vs. your ${rows.length}-week average of ${f(base)} (${ch > 0 ? "+" : ""}${ch.toFixed(0)}%).`;
+      if (better) good.push({ t: txt });
+      else if (worse) work.push({ t: label + " is down on your usual", b: txt });
+    };
+    cmp("Sales per hour", ins.rph, avg((r) => num(r.rph)), true);
+    cmp("Average per shift", ins.avgRev, avg((r) => num(r.avgRev)), true);
+    cmp("Golden ratio", ins.goldenRatio, avg((r) => (r.gr == null ? null : num(r.gr))), false);
+    cmp("Response time", ins.avgResp, avg((r) => (r.avgResp == null ? null : num(r.avgResp))), false, true);
+    const bestPast = Math.max(...rows.map((r) => num(r.rev)));
+    const curRev = ins.avgRev * ins.n;
+    if (curRev > bestPast && bestPast > 0) good.unshift({ t: `Your best week yet — ${fmt(curRev)} in sales, beating your previous best of ${fmt(bestPast)}.` });
+  }
+  return { good, work };
+}
+function ChatterProgress({ me, ins, past }) {
+  const { good, work } = chatterProgress(me, ins, past);
+  const series = [...past].reverse().map((r) => ({ v: num(r.rev), label: r._label }));
+  if (ins) series.push({ v: ins.avgRev * ins.n, label: "This week" });
+  return (
+    <div className="space-y-3">
+      {series.length > 1 && (
+        <div className="ss-card p-4">
+          <p className="ss-eyebrow mb-1">Your sales, week by week</p>
+          <Spark points={series} color="#EC2A86" height={52} fmtVal={fmt0} />
+        </div>
+      )}
+      <div className="grid sm:grid-cols-2 gap-3">
+        <div className="ss-card p-4 ss-good">
+          <p className="ss-eyebrow mb-2">What you're doing well</p>
+          {good.length ? (
+            <ul className="space-y-2">{good.map((g, k) => <li key={k} className="flex gap-2 text-[13px] text-slate-700"><span className="ss-dot-good" aria-hidden="true">✓</span><span>{g.t}</span></li>)}</ul>
+          ) : <p className="text-[13px] text-slate-500">Work a few shifts this week and your strengths will show up here.</p>}
+        </div>
+        <div className="ss-card p-4 ss-work">
+          <p className="ss-eyebrow mb-2">What to work on</p>
+          {work.length ? (
+            <ul className="space-y-2.5">{work.map((w, k) => <li key={k} className="text-[13px]"><p className="font-bold text-slate-800">{w.t}</p>{w.b && <p className="text-slate-600 mt-0.5">{w.b}</p>}</li>)}</ul>
+          ) : <p className="text-[13px] text-slate-500">Nothing to flag — keep doing what you're doing.</p>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function LimitedApp({ sb, profile, onSignOut, preview }) {
   const [slice, setSlice] = useState(null);
   const [err, setErr] = useState("");
   const [msg, setMsg] = useState("");
   const [tab, setTab] = useState("week");
   const load = async () => {
+    if (preview) { setSlice(preview.slice); return; }
     const { data, error } = await sb.rpc("my_slice");
     if (error) setErr(errText(error));
     else { setSlice(data); setErr(""); }
   };
   useEffect(() => {
     load();
+    if (preview) return;
     const ch = sb
       .channel("limited-" + profile.id)
       .on("postgres_changes", { event: "*", schema: "public", table: "app_state" }, () => load())
@@ -6732,7 +6901,7 @@ function LimitedApp({ sb, profile, onSignOut }) {
       .subscribe();
     return () => { sb.removeChannel(ch); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [profile.id]);
+  }, [profile.id, preview && preview.slice]);
   useEffect(() => { if (msg) { const t = setTimeout(() => setMsg(""), 4000); return () => clearTimeout(t); } }, [msg]);
 
   const settings = slice && slice.settings ? { ...DEFAULT_SETTINGS, ...slice.settings } : DEFAULT_SETTINGS;
@@ -6749,6 +6918,10 @@ function LimitedApp({ sb, profile, onSignOut }) {
   const myPrize = myBoardIdx >= 0 ? prizes[leaderboard[myBoardIdx].e.id] : null;
   const teamReport = isHead && slice ? buildTeamReport(profile.team || "", boardEmps.filter((e) => e.team === profile.team), settings) : null;
   const weeks = ((slice && slice.weeks) || []).slice().sort((a, b) => (b.weekStart || "").localeCompare(a.weekStart || ""));
+  // this chatter's saved paystubs, newest first
+  const myPast = isHead ? [] : weeks.map((w) => { const r = Object.values(w.chatters || {})[0]; return r ? { ...r, _week: w, _label: w.payPeriod || w.weekStart } : null; }).filter(Boolean);
+  const liveStart = me ? (me.shifts || []).map((sh) => sh.date).filter(Boolean).sort()[0] || "" : "";
+  const myIns = useMemo(() => (me ? buildInsights(me, boardEmps.map((b) => (me && b.name === me.name ? { ...b, ...me } : b)), settings) : null), [me, boardEmps, settings]);
 
   const savePdf = () => {
     if (!me || !(window.jspdf && window.jspdf.jsPDF)) return;
@@ -6785,8 +6958,18 @@ function LimitedApp({ sb, profile, onSignOut }) {
           <h1 className="truncate">{isHead ? `${teamEmoji(profile.team || "")} ${profile.team || "Team"}` : profile.display_name || "My payroll"}</h1>
           <p className="ss-top-sub truncate">{ROLE_INFO[profile.role][0]} · {settings.payPeriod || "current week"}</p>
         </div>
-        <button onClick={onSignOut} className="ml-auto ss-btn ss-btn-ghost">Sign out</button>
+        {preview ? (
+          <div className="ml-auto flex items-center gap-2">
+            <select className={inputCls} style={{ width: 160 }} aria-label="Preview as" value={preview.name} onChange={(e) => preview.onPick(e.target.value)}>
+              {preview.names.map((n) => <option key={n} value={n}>{n}</option>)}
+            </select>
+            <button onClick={preview.onExit} className="ss-btn ss-btn-dark">Exit preview</button>
+          </div>
+        ) : (
+          <button onClick={onSignOut} className="ml-auto ss-btn ss-btn-ghost">Sign out</button>
+        )}
       </header>
+      {preview && <div className="ss-preview-bar">Preview — this is exactly what {preview.name} sees when they sign in. Nothing here can be changed.</div>}
       <main className="w-full max-w-3xl mx-auto px-4 py-5 space-y-4">
         <div className="flex gap-1.5 flex-wrap">
           {tabs.map(([k, label]) => (
@@ -6797,13 +6980,21 @@ function LimitedApp({ sb, profile, onSignOut }) {
         {!slice && !err && <p className="text-sm text-slate-500">Loading…</p>}
         {slice && tab === "week" && !isHead && (
           <>
-            {me ? (
+            {me || myPast.length ? (
               <>
-                <MiniPaystub emp={me} settings={settings} prize={myPrize} />
+                <PaystubDeck
+                  slides={[
+                    ...(me ? [{ key: "live", label: `This week · ${settings.payPeriod || "current week"}`, node: <MiniPaystub emp={me} settings={settings} prize={myPrize} /> }] : []),
+                    ...myPast.filter((r) => !(me && liveStart && r._week.weekStart === liveStart)).map((r) => ({ key: r._week.weekStart, label: r._label, node: <PastPaystub row={r} week={r._week} /> })),
+                  ]}
+                />
+                {me && (
                 <div className="grid sm:grid-cols-2 gap-2">
                   <button onClick={savePdf} className="ss-sheen ss-lift rounded-lg bg-pink-600 hover:bg-pink-700 text-white px-4 py-2.5 text-sm font-bold">Paystub PDF</button>
                   <button onClick={saveCard} className="ss-lift rounded-lg bg-slate-900 hover:bg-pink-600 text-white px-4 py-2.5 text-sm font-bold">My stats card 🖼</button>
                 </div>
+                )}
+                <ChatterProgress me={me} ins={myIns} past={myPast.filter((r) => !(liveStart && r._week.weekStart === liveStart))} />
               </>
             ) : (
               <div className="ss-card p-5 text-sm text-slate-600">
@@ -7023,6 +7214,7 @@ export default function PaystubApp({ sb = null, me = null, onSignOut = null } = 
     (saved && saved.roster) || DEFAULT_ROSTER.map((r) => r.slice())
   );
   const [history, setHistory] = useState((saved && saved.history) || []);
+  const [previewAs, setPreviewAs] = useState(null); // owner sees the app exactly as one chatter does
   const [prevWeek, setPrevWeek] = useState(
     saved && saved.history && saved.history.length
       ? saved.history[saved.history.length - 1]
@@ -9002,6 +9194,29 @@ export default function PaystubApp({ sb = null, me = null, onSignOut = null } = 
     );
   }
 
+  if (previewAs) {
+    const key = previewAs.trim().toLowerCase();
+    const { invoices: _i, otherExpenses: _o, managerName: _n, managerRate: _r, managerPeriods: _m, ...pubSettings } = settings;
+    const slice = {
+      role: "chatter",
+      chatterName: previewAs,
+      employees: employees.filter((e) => e.name.trim().toLowerCase() === key),
+      settings: pubSettings,
+      board: employees.map((e) => ({ name: e.name, team: e.team, headChatter: e.headChatter, shifts: e.shifts })),
+      weeks: (history || []).map((w) => ({ payPeriod: w.payPeriod, weekStart: w.weekStart, savedDate: w.savedDate, chatters: Object.fromEntries(Object.entries(w.chatters || {}).filter(([, c]) => (c.name || "").trim().toLowerCase() === key)) })),
+    };
+    const names = Array.from(new Set([...employees.map((e) => e.name), ...(history || []).flatMap((w) => Object.values(w.chatters || {}).map((c) => c.name))])).filter(Boolean).sort((a, b) => a.localeCompare(b));
+    return (
+      <LimitedApp
+        key={"preview-" + key}
+        sb={null}
+        profile={{ id: "preview", role: "chatter", display_name: previewAs }}
+        onSignOut={() => setPreviewAs(null)}
+        preview={{ slice, name: previewAs, names, onPick: setPreviewAs, onExit: () => setPreviewAs(null) }}
+      />
+    );
+  }
+
   return (
     <div className="ss-app bg-rose-50 text-slate-900">
       <AppStyles />
@@ -10783,6 +10998,14 @@ export default function PaystubApp({ sb = null, me = null, onSignOut = null } = 
               >
                 {empHasCustom(active) ? "● Custom pay" : "Custom pay"}
               </button>
+              {canEditRules && (
+                <button
+                  onClick={() => { setPreviewAs(active.name); window.scrollTo(0, 0); }}
+                  className="pb-2 text-sm text-pink-700 hover:text-pink-900 font-semibold"
+                >
+                  Preview their view
+                </button>
+              )}
               <button
                 onClick={() => removeEmployee(active.id)}
                 className="pb-2 text-sm text-red-600 hover:text-red-700"
